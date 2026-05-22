@@ -106,30 +106,57 @@ async def _do_fetch(page, vin: str) -> BMWEquipmentResult:
         except PWTimeout:
             pass  # partial content is still usable
 
-        # Extract all visible text, stripping noise
-        text = await page.evaluate("""() => {
-            ['script','style','noscript','iframe'].forEach(tag =>
-                document.querySelectorAll(tag).forEach(el => el.remove())
-            );
-            return document.body.innerText;
-        }""")
+        # ── Helper: extract clean visible text from current page ──────────────
+        async def _get_text() -> str:
+            return await page.evaluate("""() => {
+                ['script','style','noscript','iframe','ins'].forEach(tag =>
+                    document.querySelectorAll(tag).forEach(el => el.remove())
+                );
+                return document.body.innerText;
+            }""")
 
-        if not text or len(text.strip()) < 100:
+        vehicle_text = await _get_text()
+
+        if not vehicle_text or len(vehicle_text.strip()) < 100:
             return BMWEquipmentResult(found=False, vin=vin, error="empty page response")
 
         # Secondary check: error keywords in first 1 000 chars
-        low = text[:1000].lower()
+        low = vehicle_text[:1000].lower()
         if any(k in low for k in ("429", "too many requests", "rate limit",
                                    "cloudflare", "access denied", "403 forbidden")):
             logger.warning("bimmer.work returned error/rate-limit page for VIN %s", vin)
             return BMWEquipmentResult(found=False, vin=vin, error="429 rate limited")
 
-        logger.info("✅ bimmer.work returned %d chars for VIN %s", len(text), vin)
+        # ── Also fetch the /options/ sub-page (same session, no new form submit) ─
+        options_url = final_url.rstrip("/") + "/options/"
+        options_text = ""
+        try:
+            await page.goto(options_url, timeout=20_000, wait_until="domcontentloaded")
+            # Detect 429 on options page too
+            if "/429" not in page.url:
+                try:
+                    await page.wait_for_load_state("networkidle", timeout=10_000)
+                except PWTimeout:
+                    pass
+                options_text = await _get_text()
+                logger.info("✅ bimmer.work /options/ returned %d chars for VIN %s",
+                            len(options_text), vin)
+            else:
+                logger.warning("bimmer.work /options/ rate-limited for VIN %s", vin)
+        except Exception as exc:
+            logger.warning("Could not fetch /options/ for VIN %s: %s", vin, exc)
+
+        # ── Combine vehicle + options text ────────────────────────────────────
+        combined = vehicle_text.strip()
+        if options_text.strip():
+            combined += "\n\n=== OPTIONS / EQUIPMENT CODES ===\n\n" + options_text.strip()
+
+        logger.info("✅ bimmer.work total %d chars for VIN %s", len(combined), vin)
         return BMWEquipmentResult(
             found=True,
             vin=vin,
             page_url=final_url,
-            raw_html_text=text.strip()[:15_000],
+            raw_html_text=combined[:20_000],   # increased cap: more data for Gemini
         )
 
     except PWTimeout:

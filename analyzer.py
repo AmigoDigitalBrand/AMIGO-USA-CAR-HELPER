@@ -239,29 +239,36 @@ def format_cost(usage: TokenUsage, cumulative_in: int, cumulative_out: int, lang
 
 _BMW_EQUIPMENT_PROMPT = """
 You are given raw text scraped from bimmer.work — a BMW VIN decoder.
-The text contains equipment codes and descriptions for a specific BMW vehicle.
+The text has two sections: general vehicle data and an OPTIONS / EQUIPMENT CODES section
+with 3-digit codes (e.g. 1X8, 552, 6C4) followed by English and German descriptions.
 
-Produce a clean, structured Markdown summary of the vehicle's equipment in {language}.
-Group items under these headers (skip any with no data):
+Produce a clean, structured Markdown report of the vehicle's full equipment in {language}.
+Use these sections (skip any with no data):
 
-## 🏎️ Model & Production
-(production date, plant, model line, body type, engine, transmission)
+## 🏎️ Model & Producție
+Include: model name, engine, drivetrain, transmission, color (code + name), upholstery, plant, country.
 
 ## 🎨 Exterior
-(paint color, wheels, body kit, glass, mirrors)
+Wheels (code + description), paint, glass, mirrors, roof, body styling options.
 
 ## 🪑 Interior
-(upholstery, trim, seats, steering wheel)
+Seats (adjustment, heating, memory), steering wheel, trim finish, ambient light, floor mats, panoramic roof.
 
-## 🛠️ Options & Packages
-(all option codes with descriptions — list each one as a bullet)
+## 🔊 Tehnologie & Confort
+Navigation, gesture control, head-up display, ConnectedDrive packages, satellite radio,
+comfort access, universal remote, e-drive services.
 
-## 🔊 Technology & Safety
-(navigation, audio, driver assist, cameras, parking sensors, etc.)
+## 🛡️ Siguranță & Asistență
+Adaptive headlights, fog lights, high-beam assist, driving assistant, parking assistant,
+active protection, alarm system, tyre pressure indicator, runflat tyres.
 
-Be concise and factual. Skip codes with no description.
+## 📋 Coduri Opțiuni Complete
+List EVERY option code found as: `CODE` — Description (English)
+Format as a compact bulleted list. Include ALL codes, even those with only German descriptions.
 
-BIMMER.WORK RAW TEXT:
+Be factual. No fluff. Use the language: {language}.
+
+BIMMER.WORK DATA:
 {raw_text}
 """
 
@@ -284,7 +291,7 @@ async def synthesize_bmw_equipment(raw_text: str, language: str = "ro") -> str:
                 _client.models.generate_content,
                 model=model,
                 contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=2000),
+                config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=4000),
             )
             logger.info("✅ BMW equipment synthesized via %s", model)
             return response.text.strip()
