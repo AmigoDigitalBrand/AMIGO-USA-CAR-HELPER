@@ -21,17 +21,23 @@ _PRICE_OUT = 0.300 / 1_000_000   # $ per output token
 
 # ── Model preference order ───────────────────────────────────────────────────
 _MODEL_PREFERENCE = [
-    "gemini-2.5-flash-preview-05-20",
+    # Newest / best first
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-flash-lite-preview",
+    "gemini-3-flash-preview",
     "gemini-2.5-flash",
-    "gemini-2.5-pro-preview-05-06",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
     "gemini-2.5-pro",
+    "gemini-pro-latest",
+    "gemini-2.5-flash-preview-05-20",
+    "gemini-2.5-pro-preview-05-06",
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
     "gemini-2.0-flash-lite",
-    "gemini-2.0-flash-exp",
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-001",
-    "gemini-1.5-pro",
+    "gemini-2.0-flash-lite-001",
 ]
 
 _cached_model: str | None = None
@@ -123,6 +129,8 @@ def _is_unavailable(exc: Exception) -> bool:
     return any(k in msg for k in (
         "not found", "404", "no longer available", "deprecated",
         "not_found", "does not exist", "not supported", "is not found", "new users",
+        "503", "unavailable", "high demand", "overloaded", "try again later",
+        "resource exhausted", "429",
     ))
 
 
