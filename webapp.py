@@ -1,6 +1,6 @@
+import base64
 import os
 import re
-import textwrap
 from typing import Optional
 
 import markdown as md
@@ -21,20 +21,34 @@ AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=As
 
 app = FastAPI(title="Feduk USA — Rapoarte Auto")
 
+# ── Favicon (inline SVG → base64 data-URI) ───────────────────────────────────
+_FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#DC2626"/>
+  <path d="M14 40 L18 27 Q19 24 22 24 L42 24 Q45 24 46 27 L50 40 Z"
+        fill="white" opacity="0.95"/>
+  <circle cx="21" cy="41" r="4.5" fill="#DC2626" stroke="white" stroke-width="2"/>
+  <circle cx="43" cy="41" r="4.5" fill="#DC2626" stroke="white" stroke-width="2"/>
+  <rect x="13" y="38" width="38" height="4" rx="2" fill="white" opacity="0.2"/>
+  <path d="M22 24 L25 17 L39 17 L42 24" fill="none" stroke="white"
+        stroke-width="2" stroke-linejoin="round" opacity="0.75"/>
+</svg>"""
+_FAVICON_B64  = base64.b64encode(_FAVICON_SVG.encode()).decode()
+FAVICON_URI   = f"data:image/svg+xml;base64,{_FAVICON_B64}"
+
 # ── Translations ─────────────────────────────────────────────────────────────
 T = {
     "ro": {
         "title": "Verifică Mașina",
         "subtitle": "Introdu VIN-ul și vezi raportul complet + analiza experților noștri",
         "placeholder": "ex: 5UXTS1C00M9H70629",
-        "btn_search": "Verifică VIN",
+        "btn_search": "Verifică",
         "tab_analysis": "Analiza AMIGO",
         "tab_pdf": "Raport PDF",
         "btn_pdf": "Deschide Raportul PDF",
-        "not_found_title": "Mașina nu a trecut analiza Feduk",
-        "not_found_body": "VIN-ul <strong>{vin}</strong> nu a fost analizat încă de echipa noastră.",
-        "not_found_cta": "Contactează-l pe Feduk direct pe Telegram pentru a solicita o analiză:",
-        "contact_btn": "Scrie pe Telegram @fedukusa",
+        "not_found_title": "VIN-ul nu a fost analizat",
+        "not_found_body": "VIN-ul <strong>{vin}</strong> nu a trecut prin analiza Feduk USA.",
+        "not_found_cta": "Trimite raportul Carfax pe Telegram pentru o analiză completă:",
+        "contact_btn": "@fedukusa pe Telegram",
         "footer": "© 2026 Feduk USA · Auto din America, Canada, Korea",
         "vin_label": "VIN",
         "lang_note": "Analiză disponibilă în:",
@@ -44,14 +58,14 @@ T = {
         "title": "Проверить Автомобиль",
         "subtitle": "Введите VIN и получите полный отчёт + анализ наших экспертов",
         "placeholder": "напр.: 5UXTS1C00M9H70629",
-        "btn_search": "Проверить VIN",
+        "btn_search": "Проверить",
         "tab_analysis": "Анализ AMIGO",
         "tab_pdf": "Отчёт PDF",
         "btn_pdf": "Открыть PDF Отчёт",
-        "not_found_title": "Автомобиль не прошёл анализ Feduk",
-        "not_found_body": "VIN <strong>{vin}</strong> ещё не был проанализирован нашей командой.",
-        "not_found_cta": "Свяжитесь с Feduk напрямую в Telegram для запроса анализа:",
-        "contact_btn": "Написать в Telegram @fedukusa",
+        "not_found_title": "VIN не найден в базе",
+        "not_found_body": "VIN <strong>{vin}</strong> ещё не анализировался командой Feduk USA.",
+        "not_found_cta": "Отправь Carfax в Telegram для получения полного анализа:",
+        "contact_btn": "@fedukusa в Telegram",
         "footer": "© 2026 Feduk USA · Авто из Америки, Канады, Кореи",
         "vin_label": "VIN",
         "lang_note": "Анализ доступен на:",
@@ -61,14 +75,14 @@ T = {
         "title": "Check the Car",
         "subtitle": "Enter the VIN and view the full report + our expert analysis",
         "placeholder": "e.g. 5UXTS1C00M9H70629",
-        "btn_search": "Check VIN",
+        "btn_search": "Check",
         "tab_analysis": "AMIGO Analysis",
         "tab_pdf": "PDF Report",
         "btn_pdf": "Open PDF Report",
-        "not_found_title": "Car hasn't passed Feduk analysis",
-        "not_found_body": "VIN <strong>{vin}</strong> has not been analysed by our team yet.",
-        "not_found_cta": "Contact Feduk directly on Telegram to request an analysis:",
-        "contact_btn": "Message @fedukusa on Telegram",
+        "not_found_title": "VIN not found",
+        "not_found_body": "VIN <strong>{vin}</strong> has not been analysed by the Feduk USA team yet.",
+        "not_found_cta": "Send your Carfax PDF on Telegram for a full analysis:",
+        "contact_btn": "@fedukusa on Telegram",
         "footer": "© 2026 Feduk USA · Cars from America, Canada, Korea",
         "vin_label": "VIN",
         "lang_note": "Analysis available in:",
@@ -76,15 +90,148 @@ T = {
     },
 }
 
-LANG_NAMES = {"ro": "🇷🇴 RO", "ru": "🇷🇺 RU", "en": "🇬🇧 EN"}
-
+LANG_NAMES = {"ro": "RO", "ru": "RU", "en": "EN"}
 VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$", re.IGNORECASE)
+
+# ── Design tokens (single source of truth) ───────────────────────────────────
+CSS = """
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:#080808;
+  --surface:#111111;
+  --surface-2:#1a1a1a;
+  --border:#222222;
+  --border-2:#2e2e2e;
+  --text:#f2f2f2;
+  --text-2:#888888;
+  --text-3:#555555;
+  --red:#DC2626;
+  --red-dim:#b91c1c;
+  --green:#22c55e;
+  --radius:10px;
+  --mono:'JetBrains Mono',monospace;
+  --sans:'Space Grotesk',system-ui,sans-serif;
+  --transition:180ms cubic-bezier(.4,0,.2,1);
+}
+
+html{scroll-behavior:smooth}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+
+/* ── HEADER ── */
+header{position:sticky;top:0;z-index:50;background:rgba(8,8,8,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between}
+.logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+.logo-icon{width:32px;height:32px;background:var(--red);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#fff;letter-spacing:-.5px;flex-shrink:0}
+.logo-name{font-size:.9rem;font-weight:600;color:var(--text);letter-spacing:.02em}
+.logo-sub{font-size:.7rem;color:var(--text-3);letter-spacing:.04em;display:block;margin-top:-2px}
+.lang-switcher{display:flex;gap:2px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:3px}
+.lang-btn{font-family:var(--sans);font-size:.75rem;font-weight:600;color:var(--text-3);background:none;border:none;cursor:pointer;padding:4px 10px;border-radius:6px;transition:var(--transition);text-decoration:none;letter-spacing:.04em}
+.lang-btn:hover{color:var(--text);background:var(--border-2)}
+.lang-btn.active{color:var(--text);background:var(--surface);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+
+/* ── HERO ── */
+.hero{padding:72px 24px 64px;text-align:center}
+.hero-eyebrow{font-size:.72rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--red);margin-bottom:16px}
+.hero h1{font-size:clamp(2rem,5vw,3.2rem);font-weight:700;letter-spacing:-.03em;line-height:1.1;color:var(--text);margin-bottom:14px}
+.hero p{color:var(--text-2);font-size:1rem;margin-bottom:40px;max-width:480px;margin-left:auto;margin-right:auto;line-height:1.6}
+
+/* ── SEARCH BOX ── */
+.search-wrap{max-width:540px;margin:0 auto}
+.search-box{display:flex;background:var(--surface);border:1px solid var(--border-2);border-radius:12px;overflow:hidden;transition:border-color var(--transition),box-shadow var(--transition)}
+.search-box:focus-within{border-color:var(--red);box-shadow:0 0 0 3px rgba(220,38,38,.15)}
+.search-box input{flex:1;background:none;border:none;outline:none;padding:15px 18px;font-family:var(--mono);font-size:.95rem;color:var(--text);letter-spacing:.05em}
+.search-box input::placeholder{color:var(--text-3);font-family:var(--mono)}
+.search-btn{background:var(--red);color:#fff;border:none;padding:0 28px;font-family:var(--sans);font-size:.9rem;font-weight:600;cursor:pointer;transition:background var(--transition);white-space:nowrap;letter-spacing:.02em}
+.search-btn:hover{background:var(--red-dim)}
+.error-msg{color:#f87171;font-size:.8rem;margin-top:10px;text-align:center}
+
+/* ── MAIN ── */
+main{flex:1;max-width:860px;width:100%;margin:0 auto;padding:32px 20px 64px}
+
+/* ── CARD ── */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px}
+.card-top{background:var(--surface-2);padding:16px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
+.card-top-title{font-size:.8rem;font-weight:600;color:var(--text-2);letter-spacing:.06em;text-transform:uppercase}
+.vin-tag{font-family:var(--mono);font-size:.8rem;font-weight:500;background:var(--red);color:#fff;padding:3px 10px;border-radius:6px;letter-spacing:.06em}
+
+/* ── TABS ── */
+.tabs{display:flex;padding:0 22px;border-bottom:1px solid var(--border);gap:0}
+.tab{font-size:.82rem;font-weight:600;color:var(--text-3);padding:14px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color var(--transition),border-color var(--transition);letter-spacing:.02em;user-select:none}
+.tab:hover{color:var(--text-2)}
+.tab.active{color:var(--text);border-bottom-color:var(--red)}
+.tab-pane{display:none;padding:28px 24px}
+.tab-pane.active{display:block}
+
+/* ── LANG PILLS ── */
+.lang-pills{display:flex;gap:6px;margin-bottom:22px}
+.lang-pill{font-size:.75rem;font-weight:600;letter-spacing:.06em;padding:5px 14px;border-radius:20px;border:1px solid var(--border-2);color:var(--text-3);background:none;cursor:pointer;transition:var(--transition);font-family:var(--sans)}
+.lang-pill.active{background:var(--red);border-color:var(--red);color:#fff}
+.lang-body{display:none}
+.lang-body.active{display:block}
+
+/* ── ANALYSIS TYPOGRAPHY ── */
+.analysis-content{line-height:1.75;color:var(--text)}
+.analysis-content h2{font-size:1rem;font-weight:600;color:var(--red);margin:24px 0 10px;letter-spacing:.01em}
+.analysis-content h2:first-child{margin-top:0}
+.analysis-content h3{font-size:.95rem;font-weight:600;color:var(--text);margin:16px 0 8px}
+.analysis-content p{margin-bottom:12px;color:var(--text-2);font-size:.925rem}
+.analysis-content ul,
+.analysis-content ol{padding-left:18px;margin-bottom:12px}
+.analysis-content li{margin-bottom:6px;color:var(--text-2);font-size:.925rem}
+.analysis-content strong{color:var(--text);font-weight:600}
+.analysis-content table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.875rem}
+.analysis-content th{background:var(--surface-2);color:var(--text-2);font-weight:600;padding:8px 12px;text-align:left;border:1px solid var(--border)}
+.analysis-content td{padding:8px 12px;border:1px solid var(--border);color:var(--text-2)}
+.analysis-content code{font-family:var(--mono);font-size:.8rem;background:var(--surface-2);padding:2px 6px;border-radius:4px;color:var(--text)}
+.analysis-content hr{border:none;border-top:1px solid var(--border);margin:20px 0}
+
+/* ── PDF SECTION ── */
+.pdf-area{text-align:center;padding:48px 24px}
+.pdf-icon{font-size:2.5rem;margin-bottom:14px}
+.pdf-vin{font-family:var(--mono);font-size:.8rem;color:var(--text-3);letter-spacing:.08em;margin-bottom:18px}
+.pdf-cta{display:inline-flex;align-items:center;gap:9px;background:var(--red);color:#fff;padding:13px 28px;border-radius:var(--radius);font-size:.9rem;font-weight:600;text-decoration:none;transition:background var(--transition),transform var(--transition);letter-spacing:.02em}
+.pdf-cta:hover{background:var(--red-dim);transform:translateY(-1px)}
+
+/* ── NOT FOUND ── */
+.not-found{text-align:center;padding:60px 24px}
+.nf-icon{width:56px;height:56px;background:var(--surface-2);border:1px solid var(--border);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin:0 auto 20px}
+.not-found h2{font-size:1.2rem;font-weight:700;letter-spacing:-.02em;margin-bottom:10px}
+.not-found p{color:var(--text-2);font-size:.9rem;line-height:1.6;max-width:400px;margin:0 auto 8px}
+.tg-btn{display:inline-flex;align-items:center;gap:8px;background:#2AABEE;color:#fff;padding:12px 22px;border-radius:var(--radius);font-size:.88rem;font-weight:600;text-decoration:none;transition:opacity var(--transition),transform var(--transition);margin-top:22px}
+.tg-btn:hover{opacity:.88;transform:translateY(-1px)}
+
+/* ── BMW EQUIPMENT ── */
+.equip-meta{font-size:.78rem;color:var(--text-3);margin-bottom:24px;display:flex;align-items:center;gap:16px}
+.equip-meta a{color:var(--red);text-decoration:none;font-weight:500}
+.equip-meta a:hover{text-decoration:underline}
+.equip-sep{color:var(--border-2)}
+
+/* ── RETRY BUTTON ── */
+.retry-btn{display:inline-flex;align-items:center;gap:8px;background:var(--surface-2);border:1px solid var(--border-2);color:var(--text-2);padding:11px 22px;border-radius:var(--radius);font-size:.88rem;font-weight:600;text-decoration:none;transition:var(--transition);margin-top:20px;font-family:var(--sans)}
+.retry-btn:hover{color:var(--text);border-color:var(--text-3)}
+
+/* ── FOOTER ── */
+footer{border-top:1px solid var(--border);padding:18px 24px;text-align:center;font-size:.75rem;color:var(--text-3);letter-spacing:.03em}
+footer span{color:var(--red)}
+
+/* ── RESPONSIVE ── */
+@media(max-width:540px){
+  .hero{padding:48px 20px 40px}
+  .hero h1{font-size:1.8rem}
+  .search-box{flex-direction:column;border-radius:var(--radius)}
+  .search-btn{padding:14px;border-radius:0}
+  .tabs{overflow-x:auto}
+  header{padding:0 16px}
+}
+"""
 
 # ── HTML shell ────────────────────────────────────────────────────────────────
 def html_shell(content: str, lang: str = "ro", vin: str = "") -> str:
-    t = T[lang]
-    lang_links = " · ".join(
-        f'<a href="?lang={l}&vin={vin}" class="lang-link {"active" if l == lang else ""}">{n}</a>'
+    tr = T[lang]
+    lang_links = "".join(
+        f'<a href="?lang={l}&vin={vin}" class="lang-btn {"active" if l == lang else ""}">{n}</a>'
         for l, n in LANG_NAMES.items()
     )
     return f"""<!DOCTYPE html>
@@ -92,196 +239,136 @@ def html_shell(content: str, lang: str = "ro", vin: str = "") -> str:
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Feduk USA — {t['title']}</title>
-<style>
-  :root {{
-    --red:#C8102E; --red-dark:#9b0c22; --black:#0f0f0f; --white:#fff;
-    --gray:#f5f5f5; --border:#e0e0e0; --text:#1a1a1a; --muted:#666;
-    --radius:12px; --shadow:0 4px 24px rgba(0,0,0,.10);
-  }}
-  *{{box-sizing:border-box;margin:0;padding:0}}
-  body{{font-family:'Segoe UI',system-ui,sans-serif;background:var(--gray);color:var(--text);min-height:100vh;display:flex;flex-direction:column}}
-  /* ── Header ── */
-  header{{background:var(--black);padding:16px 24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}}
-  .logo{{display:flex;align-items:center;gap:14px;text-decoration:none}}
-  .logo-text{{color:var(--white)}}
-  .logo-text strong{{display:block;font-size:1.3rem;letter-spacing:.04em;color:var(--red)}}
-  .logo-text span{{font-size:.78rem;color:#aaa;letter-spacing:.05em}}
-  .lang-switcher{{display:flex;gap:8px;align-items:center}}
-  .lang-link{{color:#aaa;text-decoration:none;font-size:.82rem;font-weight:600;padding:4px 10px;border-radius:20px;transition:.2s}}
-  .lang-link:hover,.lang-link.active{{background:var(--red);color:var(--white)}}
-  /* ── Hero ── */
-  .hero{{background:linear-gradient(135deg,var(--black) 60%,#1a0005 100%);padding:60px 24px 50px;text-align:center}}
-  .hero h1{{color:var(--white);font-size:clamp(1.6rem,4vw,2.4rem);margin-bottom:12px}}
-  .hero p{{color:#bbb;font-size:1rem;margin-bottom:32px}}
-  /* ── Search form ── */
-  .search-box{{max-width:560px;margin:0 auto;display:flex;gap:0;border-radius:var(--radius);overflow:hidden;box-shadow:0 0 0 3px rgba(200,16,46,.4)}}
-  .search-box input{{flex:1;padding:16px 20px;font-size:1rem;border:none;outline:none;background:var(--white);color:var(--text)}}
-  .search-box button{{background:var(--red);color:var(--white);border:none;padding:16px 28px;font-size:1rem;font-weight:700;cursor:pointer;transition:.2s;white-space:nowrap}}
-  .search-box button:hover{{background:var(--red-dark)}}
-  .error-msg{{color:#ff6b6b;font-size:.88rem;margin-top:10px;text-align:center}}
-  /* ── Main content ── */
-  main{{flex:1;max-width:900px;width:100%;margin:40px auto;padding:0 20px}}
-  /* ── Card ── */
-  .card{{background:var(--white);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;margin-bottom:24px}}
-  .card-header{{background:var(--black);color:var(--white);padding:16px 24px;display:flex;align-items:center;gap:12px}}
-  .card-header .vin-badge{{background:var(--red);color:var(--white);font-weight:700;padding:4px 12px;border-radius:20px;font-size:.85rem;letter-spacing:.08em}}
-  /* ── Tabs ── */
-  .tabs{{display:flex;border-bottom:2px solid var(--border)}}
-  .tab{{padding:14px 24px;cursor:pointer;font-weight:600;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px;transition:.2s;user-select:none}}
-  .tab.active{{color:var(--red);border-bottom-color:var(--red)}}
-  .tab-content{{display:none;padding:28px}}
-  .tab-content.active{{display:block}}
-  /* ── Analysis ── */
-  .analysis-langs{{display:flex;gap:8px;margin-bottom:20px}}
-  .alang{{padding:6px 16px;border-radius:20px;border:2px solid var(--border);cursor:pointer;font-size:.85rem;font-weight:600;transition:.2s}}
-  .alang.active{{background:var(--red);color:var(--white);border-color:var(--red)}}
-  .analysis-body{{display:none;line-height:1.75;color:var(--text)}}
-  .analysis-body.active{{display:block}}
-  .analysis-body h2{{font-size:1.1rem;color:var(--red);margin:20px 0 8px;}}
-  .analysis-body h3{{font-size:1rem;margin:16px 0 6px}}
-  .analysis-body p{{margin-bottom:12px}}
-  .analysis-body ul{{padding-left:20px;margin-bottom:12px}}
-  .analysis-body li{{margin-bottom:6px}}
-  .analysis-body strong{{color:var(--black)}}
-  /* ── PDF section ── */
-  .pdf-section{{text-align:center;padding:40px 24px}}
-  .pdf-icon{{font-size:3rem;margin-bottom:16px}}
-  .pdf-btn{{display:inline-flex;align-items:center;gap:10px;background:var(--red);color:var(--white);padding:14px 32px;border-radius:var(--radius);font-size:1rem;font-weight:700;text-decoration:none;transition:.2s;margin-top:12px}}
-  .pdf-btn:hover{{background:var(--red-dark);transform:translateY(-1px)}}
-  /* ── Not found ── */
-  .not-found{{text-align:center;padding:50px 24px}}
-  .not-found-icon{{font-size:3rem;margin-bottom:20px}}
-  .not-found h2{{font-size:1.4rem;margin-bottom:12px;color:var(--black)}}
-  .not-found p{{color:var(--muted);margin-bottom:8px;line-height:1.6}}
-  .tg-btn{{display:inline-flex;align-items:center;gap:10px;background:#229ED9;color:var(--white);padding:14px 28px;border-radius:var(--radius);font-size:1rem;font-weight:700;text-decoration:none;transition:.2s;margin-top:20px}}
-  .tg-btn:hover{{opacity:.9;transform:translateY(-1px)}}
-  /* ── Footer ── */
-  footer{{background:var(--black);color:#666;text-align:center;padding:18px;font-size:.82rem;margin-top:auto}}
-  footer span{{color:var(--red)}}
-  @media(max-width:520px){{
-    .search-box{{flex-direction:column;border-radius:var(--radius)}}
-    .search-box input,.search-box button{{border-radius:0}}
-    .tabs{{overflow-x:auto}}
-  }}
-</style>
+<title>Feduk USA — {tr['title']}</title>
+<link rel="icon" type="image/svg+xml" href="{FAVICON_URI}"/>
+<style>{CSS}</style>
 </head>
 <body>
 <header>
   <a href="/?lang={lang}" class="logo">
-    <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-      <rect width="40" height="40" rx="8" fill="#C8102E"/>
-      <text x="7" y="28" font-size="22" font-weight="900" fill="white" font-family="Arial">FU</text>
-    </svg>
-    <div class="logo-text">
-      <strong>FEDUK USA</strong>
-      <span>Auto din America, Canada, Korea</span>
+    <div class="logo-icon">FU</div>
+    <div>
+      <span class="logo-name">FEDUK USA</span>
+      <span class="logo-sub">Auto · America · Canada · Korea</span>
     </div>
   </a>
   <div class="lang-switcher">{lang_links}</div>
 </header>
 
-<section class="hero">
-  <h1>{t['title']}</h1>
-  <p>{t['subtitle']}</p>
-  <form method="get" action="/search">
-    <input type="hidden" name="lang" value="{lang}"/>
-    <div class="search-box">
-      <input name="vin" type="text" placeholder="{t['placeholder']}"
-             value="{vin}" maxlength="17" autocomplete="off" autocapitalize="characters"
-             oninput="this.value=this.value.toUpperCase()"/>
-      <button type="submit">{t['btn_search']}</button>
-    </div>
-  </form>
-</section>
+<div class="hero">
+  <div class="hero-eyebrow">Feduk USA Car Platform</div>
+  <h1>{tr['title']}</h1>
+  <p>{tr['subtitle']}</p>
+  <div class="search-wrap">
+    <form method="get" action="/search" autocomplete="off">
+      <input type="hidden" name="lang" value="{lang}"/>
+      <div class="search-box">
+        <input name="vin" type="text" placeholder="{tr['placeholder']}"
+               value="{vin}" maxlength="17"
+               autocapitalize="characters"
+               oninput="this.value=this.value.toUpperCase()"/>
+        <button type="submit" class="search-btn">{tr['btn_search']}</button>
+      </div>
+    </form>
+  </div>
+</div>
 
 <main>{content}</main>
 
-<footer>{t['footer'].replace('Feduk USA', '<span>Feduk USA</span>')}</footer>
+<footer>{tr['footer'].replace('Feduk USA','<span>Feduk USA</span>')}</footer>
 </body>
 </html>"""
 
 
+# ── Analysis card ─────────────────────────────────────────────────────────────
 def analysis_html(report, lang: str) -> str:
-    t = T[lang]
+    tr = T[lang]
     bodies = ""
     for l in ("ro", "ru", "en"):
         text = getattr(report, f"ai_analysis_{l}") or ""
-        html_body = md.markdown(text, extensions=["nl2br"]) if text else "<p>—</p>"
+        body = md.markdown(text, extensions=["nl2br", "tables"]) if text else "<p style='color:var(--text-3)'>—</p>"
         active = "active" if l == lang else ""
-        bodies += f'<div class="analysis-body {active}" id="ab-{l}">{html_body}</div>'
+        bodies += f'<div class="lang-body {active} analysis-content" id="ab-{l}">{body}</div>'
 
-    lang_btns = "".join(
-        f'<div class="alang {"active" if l == lang else ""}" onclick="switchLang(\'{l}\')">{n}</div>'
+    pills = "".join(
+        f'<button class="lang-pill {"active" if l == lang else ""}" onclick="switchLang(\'{l}\')">{n}</button>'
         for l, n in LANG_NAMES.items()
     )
 
     has_pdf = bool(report.pdf_file)
-    pdf_tab_content = ""
     if has_pdf:
-        t_pdf = T[lang]
-        pdf_tab_content = f"""
-        <div class="pdf-section">
+        pdf_content = f"""
+        <div class="pdf-area">
           <div class="pdf-icon">📄</div>
-          <p style="color:var(--muted);margin-bottom:4px">{t_pdf['vin_label']}: <strong>{report.vin}</strong></p>
-          <a href="/pdf/{report.vin}" target="_blank" class="pdf-btn">
-            📥 {t_pdf['btn_pdf']}
+          <div class="pdf-vin">{report.vin}</div>
+          <a href="/pdf/{report.vin}" target="_blank" class="pdf-cta">
+            ↓ &nbsp;{tr['btn_pdf']}
           </a>
         </div>"""
     else:
-        pdf_tab_content = '<div class="pdf-section"><p style="color:var(--muted)">PDF indisponibil.</p></div>'
+        pdf_content = '<div class="pdf-area"><p style="color:var(--text-3);font-size:.9rem">PDF indisponibil.</p></div>'
 
     return f"""
 <div class="card">
-  <div class="card-header">
-    <span>{T[lang]['vin_label']}</span>
-    <span class="vin-badge">{report.vin}</span>
+  <div class="card-top">
+    <span class="card-top-title">{tr['vin_label']}</span>
+    <span class="vin-tag">{report.vin}</span>
   </div>
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('analysis',this)">{T[lang]['tab_analysis']}</div>
-    <div class="tab" onclick="switchTab('pdf',this)">{T[lang]['tab_pdf']}</div>
+    <div class="tab active" onclick="switchTab('analysis',this)">{tr['tab_analysis']}</div>
+    <div class="tab" onclick="switchTab('pdf',this)">{tr['tab_pdf']}</div>
   </div>
-  <div class="tab-content active" id="tab-analysis">
-    <div class="analysis-langs">{lang_btns}</div>
+  <div class="tab-pane active" id="tab-analysis">
+    <div class="lang-pills">{pills}</div>
     {bodies}
   </div>
-  <div class="tab-content" id="tab-pdf">{pdf_tab_content}</div>
+  <div class="tab-pane" id="tab-pdf">{pdf_content}</div>
 </div>
 <script>
-function switchTab(name, el) {{
+function switchTab(name,el){{
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-pane').forEach(t=>t.classList.remove('active'));
   el.classList.add('active');
   document.getElementById('tab-'+name).classList.add('active');
 }}
-function switchLang(l) {{
-  document.querySelectorAll('.alang').forEach(a=>a.classList.remove('active'));
-  document.querySelectorAll('.analysis-body').forEach(a=>a.classList.remove('active'));
-  document.querySelector('.alang[onclick="switchLang(\\''+l+'\\')"]').classList.add('active');
+function switchLang(l){{
+  document.querySelectorAll('.lang-pill').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.lang-body').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.lang-pill[onclick*="'+l+'"]').classList.add('active');
   document.getElementById('ab-'+l).classList.add('active');
 }}
 </script>"""
 
 
+# ── Not-found card ────────────────────────────────────────────────────────────
 def not_found_html(vin: str, lang: str) -> str:
-    t = T[lang]
-    body_text = t["not_found_body"].format(vin=vin)
+    tr = T[lang]
+    body_text = tr["not_found_body"].format(vin=vin)
     return f"""
 <div class="card">
   <div class="not-found">
-    <div class="not-found-icon">🔍</div>
-    <h2>{t['not_found_title']}</h2>
+    <div class="nf-icon">🔍</div>
+    <h2>{tr['not_found_title']}</h2>
     <p>{body_text}</p>
-    <p>{t['not_found_cta']}</p>
+    <p>{tr['not_found_cta']}</p>
     <a href="https://t.me/fedukusa" target="_blank" class="tg-btn">
-      ✈️ {t['contact_btn']}
+      ✈️ &nbsp;{tr['contact_btn']}
     </a>
   </div>
 </div>"""
 
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+# ── BMW helpers ───────────────────────────────────────────────────────────────
+def _bmw_has_real_data(bmw_equipment: str | None) -> bool:
+    if not bmw_equipment or len(bmw_equipment.strip()) < 400:
+        return False
+    err_keywords = ("429", "too many requests", "rate limit", "no vehicle data",
+                    "does not contain", "navigation elements", "eroare", "ошибка")
+    low = bmw_equipment.lower()
+    return not any(k in low for k in err_keywords)
 
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, lang: str = "ro"):
     lang = lang if lang in T else "ro"
@@ -291,7 +378,7 @@ async def index(request: Request, lang: str = "ro"):
 @app.get("/search", response_class=HTMLResponse)
 async def search(request: Request, vin: str = "", lang: str = "ro"):
     lang = lang if lang in T else "ro"
-    vin = vin.strip().upper()
+    vin  = vin.strip().upper()
 
     if not vin:
         return HTMLResponse(html_shell("", lang))
@@ -306,11 +393,7 @@ async def search(request: Request, vin: str = "", lang: str = "ro"):
             select(CarfaxReport).where(CarfaxReport.vin == vin)
         )
 
-    if not result:
-        content = not_found_html(vin, lang)
-    else:
-        content = analysis_html(result, lang)
-
+    content = analysis_html(result, lang) if result else not_found_html(vin, lang)
     return HTMLResponse(html_shell(content, lang, vin))
 
 
@@ -322,10 +405,8 @@ async def serve_pdf(vin: str):
         result = await session.scalar(
             select(CarfaxReport).where(CarfaxReport.vin == vin)
         )
-
     if not result or not result.pdf_file:
         return Response(content="PDF not found", status_code=404)
-
     return Response(
         content=bytes(result.pdf_file),
         media_type="application/pdf",
@@ -333,26 +414,13 @@ async def serve_pdf(vin: str):
     )
 
 
-def _bmw_has_real_data(bmw_equipment: str | None) -> bool:
-    """Return True only if the stored text looks like real equipment data (not an error message)."""
-    if not bmw_equipment or len(bmw_equipment.strip()) < 400:
-        return False
-    err_keywords = ("429", "too many requests", "rate limit", "no vehicle data",
-                    "does not contain", "navigation elements", "eroare", "ошибка")
-    low = bmw_equipment.lower()
-    return not any(k in low for k in err_keywords)
-
-
 @app.get("/bmw/{vin}/retry")
 async def bmw_retry(vin: str, lang: str = "ro"):
-    """Re-fetch bimmer.work equipment and save to DB, then redirect back."""
     vin  = vin.strip().upper()
     lang = lang if lang in T else "ro"
-
     from database import CarfaxReport
     from bmw_lookup import fetch_bimmer_equipment
     from analyzer import synthesize_bmw_equipment
-
     async with AsyncSessionLocal() as session:
         record = await session.scalar(select(CarfaxReport).where(CarfaxReport.vin == vin))
         if record:
@@ -362,7 +430,6 @@ async def bmw_retry(vin: str, lang: str = "ro"):
                 if _bmw_has_real_data(equip_text):
                     record.bmw_equipment = equip_text
                     await session.commit()
-
     return RedirectResponse(url=f"/bmw/{vin}?lang={lang}", status_code=303)
 
 
@@ -379,50 +446,42 @@ async def bmw_equipment(vin: str, lang: str = "ro"):
 
     has_data = result and _bmw_has_real_data(result.bmw_equipment if result else None)
 
-    retry_btn = (
-        f'<a href="/bmw/{vin}/retry?lang={lang}" class="pdf-btn" style="background:#444;margin-top:16px">'
-        f'🔄 Retry bimmer.work</a>'
-    )
-
     if not has_data:
         content = f"""
 <div class="card">
-  <div class="card-header">
-    <span>⚙️ BMW Equipment</span>
-    <span class="vin-badge">{vin}</span>
+  <div class="card-top">
+    <span class="card-top-title">⚙ BMW Equipment</span>
+    <span class="vin-tag">{vin}</span>
   </div>
   <div class="not-found">
-    <div class="not-found-icon">⚙️</div>
-    <h2 style="margin-bottom:10px">Equipment data unavailable</h2>
-    <p style="color:var(--muted);margin-bottom:4px">
-      bimmer.work could not be reached or returned no data for this VIN.
+    <div class="nf-icon">⚙️</div>
+    <h2>Equipment data unavailable</h2>
+    <p>bimmer.work could not be reached or returned no data for this VIN.</p>
+    <p style="color:var(--text-3);font-size:.85rem;margin-top:6px">
+      Usually a temporary rate-limit — try again in a few seconds.
     </p>
-    <p style="color:var(--muted);margin-bottom:20px">
-      This is usually a temporary rate-limit. Try again in a few seconds.
-    </p>
-    {retry_btn}
-    <br><a href="/search?lang={lang}&vin={vin}" style="display:inline-block;margin-top:16px;color:var(--red);font-weight:600;">← Back to analysis</a>
+    <a href="/bmw/{vin}/retry?lang={lang}" class="retry-btn">↺ &nbsp;Retry bimmer.work</a>
+    <br><a href="/search?lang={lang}&vin={vin}" style="display:inline-block;margin-top:16px;color:var(--red);font-size:.85rem;text-decoration:none;font-weight:500">← Back to analysis</a>
   </div>
 </div>"""
         return HTMLResponse(html_shell(content, lang, vin))
 
-    equip_html = md.markdown(result.bmw_equipment, extensions=["nl2br"])
-
+    equip_html = md.markdown(result.bmw_equipment, extensions=["nl2br", "tables"])
     content = f"""
 <div class="card">
-  <div class="card-header">
-    <span>⚙️ BMW Equipment</span>
-    <span class="vin-badge">{vin}</span>
+  <div class="card-top">
+    <span class="card-top-title">⚙ BMW Equipment</span>
+    <span class="vin-tag">{vin}</span>
   </div>
-  <div style="padding:28px">
-    <p style="color:var(--muted);font-size:.85rem;margin-bottom:20px">
-      Source: <a href="https://bimmer.work" target="_blank" style="color:var(--red)">bimmer.work</a>
-      · <a href="/search?lang={lang}&vin={vin}" style="color:var(--red)">← Back to full analysis</a>
-    </p>
-    <div class="analysis-body active" style="display:block">{equip_html}</div>
+  <div class="tab-pane active">
+    <div class="equip-meta">
+      <a href="https://bimmer.work" target="_blank">bimmer.work</a>
+      <span class="equip-sep">·</span>
+      <a href="/search?lang={lang}&vin={vin}">← Back to analysis</a>
+    </div>
+    <div class="analysis-content">{equip_html}</div>
   </div>
 </div>"""
-
     return HTMLResponse(html_shell(content, lang, vin))
 
 
