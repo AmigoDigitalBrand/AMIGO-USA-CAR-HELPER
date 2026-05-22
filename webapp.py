@@ -5,7 +5,7 @@ from typing import Optional
 
 import markdown as md
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -333,9 +333,42 @@ async def serve_pdf(vin: str):
     )
 
 
+def _bmw_has_real_data(bmw_equipment: str | None) -> bool:
+    """Return True only if the stored text looks like real equipment data (not an error message)."""
+    if not bmw_equipment or len(bmw_equipment.strip()) < 400:
+        return False
+    err_keywords = ("429", "too many requests", "rate limit", "no vehicle data",
+                    "does not contain", "navigation elements", "eroare", "ошибка")
+    low = bmw_equipment.lower()
+    return not any(k in low for k in err_keywords)
+
+
+@app.get("/bmw/{vin}/retry")
+async def bmw_retry(vin: str, lang: str = "ro"):
+    """Re-fetch bimmer.work equipment and save to DB, then redirect back."""
+    vin  = vin.strip().upper()
+    lang = lang if lang in T else "ro"
+
+    from database import CarfaxReport
+    from bmw_lookup import fetch_bimmer_equipment
+    from analyzer import synthesize_bmw_equipment
+
+    async with AsyncSessionLocal() as session:
+        record = await session.scalar(select(CarfaxReport).where(CarfaxReport.vin == vin))
+        if record:
+            bimmer = await fetch_bimmer_equipment(vin)
+            if bimmer.found:
+                equip_text = await synthesize_bmw_equipment(bimmer.raw_html_text, lang)
+                if _bmw_has_real_data(equip_text):
+                    record.bmw_equipment = equip_text
+                    await session.commit()
+
+    return RedirectResponse(url=f"/bmw/{vin}?lang={lang}", status_code=303)
+
+
 @app.get("/bmw/{vin}", response_class=HTMLResponse)
 async def bmw_equipment(vin: str, lang: str = "ro"):
-    vin = vin.strip().upper()
+    vin  = vin.strip().upper()
     lang = lang if lang in T else "ro"
 
     async with AsyncSessionLocal() as session:
@@ -344,14 +377,31 @@ async def bmw_equipment(vin: str, lang: str = "ro"):
             select(CarfaxReport).where(CarfaxReport.vin == vin)
         )
 
-    if not result or not result.bmw_equipment:
+    has_data = result and _bmw_has_real_data(result.bmw_equipment if result else None)
+
+    retry_btn = (
+        f'<a href="/bmw/{vin}/retry?lang={lang}" class="pdf-btn" style="background:#444;margin-top:16px">'
+        f'🔄 Retry bimmer.work</a>'
+    )
+
+    if not has_data:
         content = f"""
 <div class="card">
+  <div class="card-header">
+    <span>⚙️ BMW Equipment</span>
+    <span class="vin-badge">{vin}</span>
+  </div>
   <div class="not-found">
-    <div class="not-found-icon">🏎️</div>
-    <h2>BMW Equipment Not Found</h2>
-    <p style="color:var(--muted)">No equipment data available for VIN <strong>{vin}</strong>.</p>
-    <a href="/search?lang={lang}&vin={vin}" style="display:inline-block;margin-top:20px;color:var(--red);font-weight:600;">← Back to analysis</a>
+    <div class="not-found-icon">⚙️</div>
+    <h2 style="margin-bottom:10px">Equipment data unavailable</h2>
+    <p style="color:var(--muted);margin-bottom:4px">
+      bimmer.work could not be reached or returned no data for this VIN.
+    </p>
+    <p style="color:var(--muted);margin-bottom:20px">
+      This is usually a temporary rate-limit. Try again in a few seconds.
+    </p>
+    {retry_btn}
+    <br><a href="/search?lang={lang}&vin={vin}" style="display:inline-block;margin-top:16px;color:var(--red);font-weight:600;">← Back to analysis</a>
   </div>
 </div>"""
         return HTMLResponse(html_shell(content, lang, vin))

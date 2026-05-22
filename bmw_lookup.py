@@ -84,6 +84,12 @@ async def fetch_bimmer_equipment(vin: str) -> BMWEquipmentResult:
             if not text or len(text.strip()) < 100:
                 return BMWEquipmentResult(found=False, vin=vin, error="empty page response")
 
+            # Detect rate-limit / error pages before passing to Gemini
+            text_lower = text[:1000].lower()
+            if any(k in text_lower for k in ("429", "too many requests", "rate limit", "cloudflare", "access denied", "403 forbidden")):
+                logger.warning("bimmer.work returned error page for VIN %s (rate limited?)", vin)
+                return BMWEquipmentResult(found=False, vin=vin, error="rate limited or access denied")
+
             logger.info("✅ bimmer.work returned %d chars for VIN %s", len(text), vin)
             return BMWEquipmentResult(
                 found=True,
