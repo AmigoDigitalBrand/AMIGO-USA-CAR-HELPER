@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
+# Required for the local Telegram Bot API server (get from https://my.telegram.org)
+TELEGRAM_API_ID: str = os.environ["TELEGRAM_API_ID"]
+TELEGRAM_API_HASH: str = os.environ["TELEGRAM_API_HASH"]
 GEMINI_API_KEY: str = os.environ["GEMINI_API_KEY"]
 DATABASE_URL: str = os.environ["DATABASE_URL"]
 # Normalize to postgresql+asyncpg:// for SQLAlchemy async (handles both Railway formats)

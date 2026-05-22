@@ -17,6 +17,10 @@ from telegram.ext import (
 from analyzer import analyze_report
 from config import TELEGRAM_BOT_TOKEN
 from database import AsyncSessionLocal, CarfaxReport, init_db
+
+# Local Telegram Bot API server — removes the 20 MB file size limit
+LOCAL_API_BASE_URL = "http://localhost:8081/bot"
+LOCAL_API_FILE_URL = "http://localhost:8081/file/bot"
 from locales import DEFAULT_LANG, Lang, t
 from pdf_parser import parse_pdf
 
@@ -71,12 +75,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if not doc.mime_type == "application/pdf":
         await update.message.reply_text(t("not_carfax", lang))
-        return
-
-    # Telegram Bot API hard limit: 20 MB
-    MAX_SIZE = 20 * 1024 * 1024
-    if doc.file_size and doc.file_size > MAX_SIZE:
-        await update.message.reply_text(t("file_too_big", lang))
         return
 
     status_msg = await update.message.reply_text(t("processing", lang))
@@ -160,6 +158,9 @@ def main() -> None:
     app = (
         Application.builder()
         .token(TELEGRAM_BOT_TOKEN)
+        .local_mode(True)
+        .base_url(LOCAL_API_BASE_URL)
+        .base_file_url(LOCAL_API_FILE_URL)
         .post_init(post_init)
         .build()
     )
