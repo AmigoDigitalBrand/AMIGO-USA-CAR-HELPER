@@ -154,7 +154,9 @@ main{flex:1;max-width:860px;width:100%;margin:0 auto;padding:32px 20px 64px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:20px}
 .card-top{background:var(--surface-2);padding:16px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
 .card-top-title{font-size:.8rem;font-weight:600;color:var(--text-2);letter-spacing:.06em;text-transform:uppercase}
-.vin-tag{font-family:var(--mono);font-size:.8rem;font-weight:500;background:var(--red);color:#fff;padding:3px 10px;border-radius:6px;letter-spacing:.06em}
+.vin-tag{font-family:var(--mono);font-size:.8rem;font-weight:500;background:var(--red);color:#fff;padding:3px 10px;border-radius:6px;letter-spacing:.06em;cursor:pointer;user-select:none;transition:background var(--transition)}
+.vin-tag:hover{background:var(--red-dim)}
+.vin-tag.copied{background:#16a34a}
 
 /* ── TABS ── */
 .tabs{display:flex;padding:0 22px;border-bottom:1px solid var(--border);gap:0}
@@ -331,7 +333,7 @@ def analysis_html(report, lang: str) -> str:
 <div class="card">
   <div class="card-top">
     <span class="card-top-title">{tr['vin_label']}</span>
-    <span class="vin-tag">{report.vin}</span>
+    <span class="vin-tag" title="Click to copy" onclick="copyVin(this,'{report.vin}')">{report.vin}</span>
   </div>
   <div class="tabs">
     <div class="tab active" onclick="switchTab('analysis',this)">{tr['tab_analysis']}</div>
@@ -355,6 +357,22 @@ function switchLang(l){{
   document.querySelectorAll('.lang-body').forEach(b=>b.classList.remove('active'));
   document.querySelector('.lang-pill[onclick*="'+l+'"]').classList.add('active');
   document.getElementById('ab-'+l).classList.add('active');
+}}
+function copyVin(el,vin){{
+  navigator.clipboard.writeText(vin).then(()=>{{
+    const prev=el.textContent;
+    el.textContent='✓ Copied';
+    el.classList.add('copied');
+    setTimeout(()=>{{el.textContent=prev;el.classList.remove('copied');}},1800);
+  }}).catch(()=>{{
+    const r=document.createRange();r.selectNode(el);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(r);
+    document.execCommand('copy');
+    window.getSelection().removeAllRanges();
+    el.textContent='✓ Copied';el.classList.add('copied');
+    setTimeout(()=>{{el.textContent=vin;el.classList.remove('copied');}},1800);
+  }});
 }}
 </script>"""
 
