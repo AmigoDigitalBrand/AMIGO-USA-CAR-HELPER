@@ -73,6 +73,12 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text(t("not_carfax", lang))
         return
 
+    # Telegram Bot API hard limit: 20 MB
+    MAX_SIZE = 20 * 1024 * 1024
+    if doc.file_size and doc.file_size > MAX_SIZE:
+        await update.message.reply_text(t("file_too_big", lang))
+        return
+
     status_msg = await update.message.reply_text(t("processing", lang))
 
     try:

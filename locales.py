@@ -19,6 +19,10 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "saved": "✅ Raport salvat pentru VIN: `{vin}`",
         "updated": "🔄 Raport actualizat pentru VIN: `{vin}`",
+        "file_too_big": (
+            "❌ Fișierul depășește limita de 20 MB a Telegram.\n"
+            "Te rog comprimă PDF-ul (ex. smallpdf.com) și trimite-l din nou."
+        ),
         "error": "⚠️ A apărut o eroare: {error}",
         "choose_lang": "🌐 Alege limba pentru analiză:",
         "lang_btn_ro": "🇷🇴 Română",
@@ -41,6 +45,10 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "saved": "✅ Отчёт сохранён для VIN: `{vin}`",
         "updated": "🔄 Отчёт обновлён для VIN: `{vin}`",
+        "file_too_big": (
+            "❌ Файл превышает лимит Telegram в 20 МБ.\n"
+            "Сожми PDF (например, smallpdf.com) и отправь снова."
+        ),
         "error": "⚠️ Произошла ошибка: {error}",
         "choose_lang": "🌐 Выбери язык анализа:",
         "lang_btn_ro": "🇷🇴 Română",
@@ -63,6 +71,10 @@ STRINGS: dict[str, dict[str, str]] = {
         ),
         "saved": "✅ Report saved for VIN: `{vin}`",
         "updated": "🔄 Report updated for VIN: `{vin}`",
+        "file_too_big": (
+            "❌ File exceeds Telegram's 20 MB limit.\n"
+            "Please compress the PDF (e.g. smallpdf.com) and send it again."
+        ),
         "error": "⚠️ An error occurred: {error}",
         "choose_lang": "🌐 Choose analysis language:",
         "lang_btn_ro": "🇷🇴 Română",
