@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import TypedDict
 
 from google import genai
@@ -6,12 +7,17 @@ from google.genai import types
 
 from config import GEMINI_API_KEY
 
+logger = logging.getLogger(__name__)
+
 _client = genai.Client(api_key=GEMINI_API_KEY)
 
-# Preferred models tried first (newest → fastest → most capable)
-_PREFERRED_MODELS = [
+# Preference order — newest / fastest first.
+# We sort discovered models by this order; anything not listed goes to the end.
+_MODEL_PREFERENCE = [
+    "gemini-2.5-flash-preview-05-20",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
+    "gemini-2.5-pro-preview-05-06",
     "gemini-2.0-flash",
     "gemini-2.0-flash-001",
     "gemini-2.0-flash-lite",
@@ -21,23 +27,48 @@ _PREFERRED_MODELS = [
     "gemini-1.5-pro",
 ]
 
-_discovered_models: list[str] = []  # populated at first call
+_cached_model: str | None = None          # first model that actually worked
+_available_models: list[str] | None = None  # from list_models(), populated once
 
 
-def _list_available_models() -> list[str]:
-    """Ask the API which models actually exist for this key."""
+def _fetch_available_models() -> list[str]:
+    """Call ListModels and return short model names for this API key."""
     try:
-        result = []
+        names = []
         for m in _client.models.list():
-            name = m.name  # e.g. "models/gemini-1.5-flash"
-            # keep only generateContent-capable Gemini models
-            short = name.replace("models/", "")
+            short = m.name.replace("models/", "")
             if "gemini" in short:
-                result.append(short)
-        return result
+                names.append(short)
+        logger.info("ListModels returned %d Gemini models: %s", len(names), names)
+        return names
     except Exception as exc:
-        logger.warning("Could not list models: %s", exc)
+        logger.warning("ListModels failed: %s — will try preference list directly.", exc)
         return []
+
+
+def _sorted_models() -> list[str]:
+    """
+    Return models sorted by preference.
+    Discovered (via ListModels) takes priority; falls back to full preference list.
+    """
+    global _available_models
+    if _available_models is None:
+        _available_models = _fetch_available_models()
+
+    if _available_models:
+        # sort by preference index; unlisted models go to the end
+        pref_index = {m: i for i, m in enumerate(_MODEL_PREFERENCE)}
+        ordered = sorted(
+            _available_models,
+            key=lambda m: pref_index.get(m, len(_MODEL_PREFERENCE)),
+        )
+        return ordered
+
+    # ListModels gave nothing — try the full preference list directly
+    return _MODEL_PREFERENCE
+
+
+# ── Prompt ───────────────────────────────────────────────────────────────────
 
 _SYSTEM_INSTRUCTION = """
 You are a cynical, seasoned auto dealer with 20+ years on the floor.
@@ -84,22 +115,7 @@ def _build_prompt(raw_text: str, language: str) -> str:
     return _PROMPT_TEMPLATE.format(language=lang_map[language], raw_text=raw_text[:60_000])
 
 
-import logging
-logger = logging.getLogger(__name__)
-
-
-def _get_model_list() -> list[str]:
-    """Return preferred models + any discovered ones not already in the list."""
-    global _discovered_models
-    if not _discovered_models:
-        _discovered_models = _list_available_models()
-        logger.info("Discovered %d Gemini models: %s", len(_discovered_models), _discovered_models)
-    # preferred first, then anything discovered that isn't already listed
-    extra = [m for m in _discovered_models if m not in _PREFERRED_MODELS]
-    return _PREFERRED_MODELS + extra
-
-
-def _is_availability_error(exc: Exception) -> bool:
+def _is_unavailable(exc: Exception) -> bool:
     msg = str(exc).lower()
     return any(k in msg for k in (
         "not found", "404", "no longer available", "deprecated",
@@ -109,10 +125,15 @@ def _is_availability_error(exc: Exception) -> bool:
 
 
 async def _generate_single(raw_text: str, language: str) -> str:
+    global _cached_model
     prompt = _build_prompt(raw_text, language)
-    models = await asyncio.to_thread(_get_model_list)
-    last_exc: Exception | None = None
 
+    # If we already found a working model, start with it
+    models = await asyncio.to_thread(_sorted_models)
+    if _cached_model and _cached_model in models:
+        models = [_cached_model] + [m for m in models if m != _cached_model]
+
+    last_exc: Exception | None = None
     for model in models:
         try:
             response = await asyncio.to_thread(
@@ -125,16 +146,19 @@ async def _generate_single(raw_text: str, language: str) -> str:
                     max_output_tokens=2048,
                 ),
             )
-            logger.info("Gemini model used: %s (lang=%s)", model, language)
+            logger.info("✅ Gemini model used: %s (lang=%s)", model, language)
+            _cached_model = model  # remember for next call
             return response.text.strip()
         except Exception as exc:
-            if _is_availability_error(exc):
-                logger.warning("Model %s unavailable, trying next. (%s)", model, exc)
+            if _is_unavailable(exc):
+                logger.warning("⚠️  Model %s unavailable, trying next.", model)
                 last_exc = exc
                 continue
-            raise  # quota, auth, network — surface immediately
+            raise
 
-    raise RuntimeError(f"All Gemini models failed. Last error: {last_exc}")
+    raise RuntimeError(
+        f"All Gemini models exhausted. Tried: {models}. Last error: {last_exc}"
+    )
 
 
 async def analyze_report(raw_text: str) -> AnalysisResult:
