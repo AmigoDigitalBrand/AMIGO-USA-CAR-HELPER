@@ -6,7 +6,7 @@ FROM ubuntu:22.04 AS tg-builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cmake make g++ git zlib1g-dev libssl-dev gperf \
+    ca-certificates cmake make g++ git zlib1g-dev libssl-dev gperf \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --depth 1 --recurse-submodules \
