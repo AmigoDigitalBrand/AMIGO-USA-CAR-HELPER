@@ -122,6 +122,10 @@ async def _run_analysis_and_save(
         existing = await session.scalar(
             select(CarfaxReport).where(CarfaxReport.vin == vin)
         )
+        # Preserve existing BMW data if fresh fetch returned nothing
+        prev_bmw = (existing.bmw_equipment or "") if existing else ""
+        effective_bmw = bmw_equipment_text or prev_bmw
+
         if existing:
             existing.telegram_user_id = telegram_user_id
             existing.raw_text         = raw_text
@@ -131,7 +135,7 @@ async def _run_analysis_and_save(
             existing.ai_analysis_en   = analyses["en"]
             existing.tokens_in        = usage.tokens_in
             existing.tokens_out       = usage.tokens_out
-            existing.bmw_equipment    = bmw_equipment_text or existing.bmw_equipment
+            existing.bmw_equipment    = effective_bmw or None
             existing.created_at       = datetime.now(timezone.utc)
             await session.commit()
         else:
@@ -145,7 +149,7 @@ async def _run_analysis_and_save(
                 ai_analysis_en=analyses["en"],
                 tokens_in=usage.tokens_in,
                 tokens_out=usage.tokens_out,
-                bmw_equipment=bmw_equipment_text or None,
+                bmw_equipment=effective_bmw or None,
             )
             session.add(report)
             await session.commit()
@@ -153,7 +157,7 @@ async def _run_analysis_and_save(
         cum_in  = await session.scalar(func.sum(CarfaxReport.tokens_in))  or 0
         cum_out = await session.scalar(func.sum(CarfaxReport.tokens_out)) or 0
 
-    card      = _build_card(summary, vin, lang, bmw_equipment_text)
+    card      = _build_card(summary, vin, lang, effective_bmw)
     cost_note = format_cost(usage, cum_in, cum_out, lang)
     return card, cost_note
 
