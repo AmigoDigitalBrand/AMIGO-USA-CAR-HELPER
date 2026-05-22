@@ -28,6 +28,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "lang_btn_ro": "🇷🇴 Română",
         "lang_btn_ru": "🇷🇺 Русский",
         "lang_btn_en": "🇬🇧 English",
+        "vin_exists": (
+            "🔎 VIN `{vin}` există deja în platforma *Feduk USA Car*.\n\n"
+            "Ce dorești să faci?"
+        ),
+        "btn_show_existing": "📋 Prezintă informația existentă",
+        "btn_update": "🔄 Actualizează",
+        "session_expired": "⚠️ Sesiunea a expirat. Te rog re-trimite PDF-ul.",
     },
     "ru": {
         "welcome": (
@@ -54,6 +61,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "lang_btn_ro": "🇷🇴 Română",
         "lang_btn_ru": "🇷🇺 Русский",
         "lang_btn_en": "🇬🇧 English",
+        "vin_exists": (
+            "🔎 VIN `{vin}` уже есть в платформе *Feduk USA Car*.\n\n"
+            "Что ты хочешь сделать?"
+        ),
+        "btn_show_existing": "📋 Показать существующую информацию",
+        "btn_update": "🔄 Обновить",
+        "session_expired": "⚠️ Сессия истекла. Пожалуйста, отправь PDF снова.",
     },
     "en": {
         "welcome": (
@@ -80,6 +94,13 @@ STRINGS: dict[str, dict[str, str]] = {
         "lang_btn_ro": "🇷🇴 Română",
         "lang_btn_ru": "🇷🇺 Русский",
         "lang_btn_en": "🇬🇧 English",
+        "vin_exists": (
+            "🔎 VIN `{vin}` already exists in the *Feduk USA Car* platform.\n\n"
+            "What would you like to do?"
+        ),
+        "btn_show_existing": "📋 Show existing info",
+        "btn_update": "🔄 Update",
+        "session_expired": "⚠️ Session expired. Please re-send the PDF.",
     },
 }
 
