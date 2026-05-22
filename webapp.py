@@ -44,6 +44,7 @@ T = {
         "btn_search": "Verifică",
         "tab_analysis": "Analiza asistentului virtual lui Feduk",
         "tab_pdf": "Raport PDF",
+        "tab_bmw": "⚙️ Echipare BMW",
         "btn_pdf": "Deschide Raportul PDF",
         "not_found_title": "VIN-ul nu a fost analizat",
         "not_found_body": "VIN-ul <strong>{vin}</strong> nu a trecut prin analiza Feduk USA.",
@@ -61,6 +62,7 @@ T = {
         "btn_search": "Проверить",
         "tab_analysis": "Анализ виртуального ассистента Feduk",
         "tab_pdf": "Отчёт PDF",
+        "tab_bmw": "⚙️ Комплектация BMW",
         "btn_pdf": "Открыть PDF Отчёт",
         "not_found_title": "VIN не найден в базе",
         "not_found_body": "VIN <strong>{vin}</strong> ещё не анализировался командой Feduk USA.",
@@ -78,6 +80,7 @@ T = {
         "btn_search": "Check",
         "tab_analysis": "Feduk Virtual Assistant Analysis",
         "tab_pdf": "PDF Report",
+        "tab_bmw": "⚙️ BMW Equipment",
         "btn_pdf": "Open PDF Report",
         "not_found_title": "VIN not found",
         "not_found_body": "VIN <strong>{vin}</strong> has not been analysed by the Feduk USA team yet.",
@@ -329,6 +332,23 @@ def analysis_html(report, lang: str) -> str:
     else:
         pdf_content = '<div class="pdf-area"><p style="color:var(--text-3);font-size:.9rem;padding:40px;text-align:center">PDF indisponibil.</p></div>'
 
+    # BMW equipment tab (only for BMW vehicles with real data)
+    has_bmw = _bmw_has_real_data(getattr(report, "bmw_equipment", None))
+    bmw_tab_btn = ""
+    bmw_tab_pane = ""
+    if has_bmw:
+        bmw_html = md.markdown(report.bmw_equipment, extensions=["nl2br", "tables"])
+        bmw_tab_btn = f'<div class="tab" onclick="switchTab(\'bmw\',this)">{tr["tab_bmw"]}</div>'
+        bmw_tab_pane = f'''
+  <div class="tab-pane" id="tab-bmw">
+    <div class="equip-meta">
+      <a href="https://bimmer.work" target="_blank" rel="noopener">bimmer.work</a>
+      <span class="equip-sep">·</span>
+      <span style="color:var(--text-3)">VIN {report.vin}</span>
+    </div>
+    <div class="analysis-content">{bmw_html}</div>
+  </div>'''
+
     return f"""
 <div class="card">
   <div class="card-top">
@@ -338,12 +358,14 @@ def analysis_html(report, lang: str) -> str:
   <div class="tabs">
     <div class="tab active" onclick="switchTab('analysis',this)">{tr['tab_analysis']}</div>
     <div class="tab" onclick="switchTab('pdf',this)">{tr['tab_pdf']}</div>
+    {bmw_tab_btn}
   </div>
   <div class="tab-pane active" id="tab-analysis">
     <div class="lang-pills">{pills}</div>
     {bodies}
   </div>
   <div class="tab-pane" id="tab-pdf">{pdf_content}</div>
+  {bmw_tab_pane}
 </div>
 <script>
 function switchTab(name,el){{

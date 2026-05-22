@@ -239,34 +239,42 @@ def format_cost(usage: TokenUsage, cumulative_in: int, cumulative_out: int, lang
 
 _BMW_EQUIPMENT_PROMPT = """
 You are given raw text scraped from bimmer.work — a BMW VIN decoder.
-The text has two sections: general vehicle data and an OPTIONS / EQUIPMENT CODES section
-with 3-digit codes (e.g. 1X8, 552, 6C4) followed by English and German descriptions.
+The text contains general vehicle data and an OPTIONS / EQUIPMENT CODES section
+with 3-digit codes followed by English and German descriptions.
 
-Produce a clean, structured Markdown report of the vehicle's full equipment in {language}.
-Use these sections (skip any with no data):
+Generate a clear, user-friendly equipment summary in **{language}** for a car buyer.
+DO NOT list or mention any option codes. Describe what each feature is in plain, accessible language —
+like a car dealership brochure, not a technical spec sheet.
 
-## 🏎️ Model & Producție
-Include: model name, engine, drivetrain, transmission, color (code + name), upholstery, plant, country.
+Use these sections (skip any with no relevant data):
 
-## 🎨 Exterior
-Wheels (code + description), paint, glass, mirrors, roof, body styling options.
+## 🏎️ Date Vehicul
+Model complet, motor (cilindree + putere kW/CP), tip propulsie (benzină/hybrid/electric),
+tracțiune, cutie viteze, culoare, tapițerie, uzina de fabricație.
 
-## 🪑 Interior
-Seats (adjustment, heating, memory), steering wheel, trim finish, ambient light, floor mats, panoramic roof.
+## 🎨 Exterior & Jante
+Dimensiunea și stilul jantelor, tipul anvelopelor (runflat / all-season etc.),
+bare pavilion, geamuri speciale, trăsături caroserie notabile.
 
-## 🔊 Tehnologie & Confort
-Navigation, gesture control, head-up display, ConnectedDrive packages, satellite radio,
-comfort access, universal remote, e-drive services.
+## 🪑 Interior & Confort
+Scaune (reglaj electric, încălzire, memorie, suport lombar, reglaj spătar spate),
+volan cu încălzire, iluminat ambient, acoperiș panoramic, oglinzi auto-dimming,
+covorașe, pachete depozitare, finisaje interioare.
 
-## 🛡️ Siguranță & Asistență
-Adaptive headlights, fog lights, high-beam assist, driving assistant, parking assistant,
-active protection, alarm system, tyre pressure indicator, runflat tyres.
+## 🔊 Tehnologie & Conectivitate
+Navigație, Head-Up Display, control gestual, pachet ConnectedDrive, radio satelit,
+Comfort Access (deschidere fără cheie), telecomandă universală integrată, servicii e-Drive.
 
-## 📋 Coduri Opțiuni Complete
-List EVERY option code found as: `CODE` — Description (English)
-Format as a compact bulleted list. Include ALL codes, even those with only German descriptions.
+## 🛡️ Siguranță & Asistență la Condus
+Faruri LED adaptive, proiectoare ceață LED, asistent faza lungă automată,
+Driving Assistant, Parking Assistant Plus, Active Protection, sistem alarmă,
+indicator presiune anvelope, anvelope runflat.
 
-Be factual. No fluff. Use the language: {language}.
+Rules:
+- Each feature = one concise bullet point in {language}
+- Zero option codes, zero German words, zero technical jargon
+- If a feature is premium/noteworthy, say so in one word (ex: "Premium —")
+- Be direct and factual
 
 BIMMER.WORK DATA:
 {raw_text}
