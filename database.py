@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import BigInteger, Column, Float, Integer, LargeBinary, String, Text, DateTime
+from sqlalchemy import BigInteger, Column, Float, Integer, LargeBinary, String, Text, DateTime, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -34,6 +34,12 @@ class CarfaxReport(Base):
 
 
 async def init_db() -> None:
-    """Create tables if they don't exist."""
+    """Create tables and apply any missing column migrations."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Idempotent migrations — ADD COLUMN IF NOT EXISTS is safe to run every time
+        for sql in [
+            "ALTER TABLE carfax_reports ADD COLUMN IF NOT EXISTS tokens_in  INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE carfax_reports ADD COLUMN IF NOT EXISTS tokens_out INTEGER NOT NULL DEFAULT 0",
+        ]:
+            await conn.execute(text(sql))
