@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -14,7 +15,7 @@ from telegram.ext import (
     filters,
 )
 
-from analyzer import analyze_report, format_cost
+from analyzer import analyze_report, extract_summary, format_cost
 from config import TELEGRAM_BOT_TOKEN
 from database import AsyncSessionLocal, CarfaxReport, init_db
 from sqlalchemy import func
@@ -96,8 +97,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             await status_msg.edit_text(t("no_vin", lang))
             return
 
-        # 3. Generate Gemini analyses (RO, RU, EN)
-        analyses = await analyze_report(raw_text)
+        # 3. Generate full analyses + short summary concurrently
+        analyses, summary = await asyncio.gather(
+            analyze_report(raw_text),
+            extract_summary(raw_text),
+        )
         usage = analyses["usage"]
 
         # 4. Upsert into DB + fetch cumulative token totals
@@ -137,21 +141,45 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             cum_in  = await session.scalar(func.sum(CarfaxReport.tokens_in))  or 0
             cum_out = await session.scalar(func.sum(CarfaxReport.tokens_out)) or 0
 
-        # 5. Reply with analysis in user's language
-        analysis_text = analyses[lang]
+        # 5. Build short reply card + links
+        SITE = "https://amigo-usa-car-helper-production.up.railway.app"
+        site_url = f"{SITE}/search?lang={lang}&vin={vin}"
+        pdf_url  = f"{SITE}/pdf/{vin}"
+
+        acc_icon = "✅" if summary.accidents == 0 else "💥"
+        acc_label = {
+            "ro": f"{summary.accidents} accident(e)",
+            "ru": f"{summary.accidents} авари{'й' if summary.accidents != 1 else 'я'}",
+            "en": f"{summary.accidents} accident{'s' if summary.accidents != 1 else ''}",
+        }.get(lang, f"{summary.accidents}")
+
+        owners_label = {
+            "ro": f"{summary.owners} proprietar{'i' if summary.owners != 1 else ''}",
+            "ru": f"{summary.owners} владел{'ец' if summary.owners == 1 else 'ьцев'}",
+            "en": f"{summary.owners} owner{'s' if summary.owners != 1 else ''}",
+        }.get(lang, f"{summary.owners}")
+
+        analysis_label = {"ro": "📊 Analiza Feduk", "ru": "📊 Анализ Feduk", "en": "📊 Feduk Analysis"}.get(lang, "📊 Analysis")
+        pdf_label      = {"ro": "📄 Raport PDF",    "ru": "📄 PDF Отчёт",    "en": "📄 PDF Report"}.get(lang, "📄 PDF")
+
+        card = (
+            f"🚗 *{summary.make} {summary.model} ({summary.year})*\n"
+            f"📍 {summary.location}\n"
+            f"👤 {owners_label}\n"
+            f"{acc_icon} {acc_label}\n"
+            f"🔑 VIN: `{vin}`\n\n"
+            f"[{analysis_label}]({site_url})\n"
+            f"[{pdf_label}]({pdf_url})"
+        )
+
         cost_note = format_cost(usage, cum_in, cum_out, lang)
 
         await status_msg.edit_text(t(status_key, lang, vin=vin))
-        # Telegram message limit is 4096 chars — split if needed
-        chunk_size = 4000
-        chunks = [analysis_text[i:i+chunk_size] for i in range(0, len(analysis_text), chunk_size)]
-        for i, chunk in enumerate(chunks):
-            # append cost note to last chunk
-            text = chunk + (cost_note if i == len(chunks) - 1 else "")
-            await update.message.reply_text(
-                text,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+        await update.message.reply_text(
+            card + cost_note,
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True,
+        )
 
     except Exception as exc:
         logger.exception("Error processing document")

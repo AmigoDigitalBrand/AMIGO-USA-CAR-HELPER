@@ -213,28 +213,84 @@ async def analyze_report(raw_text: str) -> AnalysisResult:
 
 
 def format_cost(usage: TokenUsage, cumulative_in: int, cumulative_out: int, lang: str = "ro") -> str:
-    """Return a formatted cost summary appended to the bot message."""
+    """Return a hidden cost summary (not shown to users — internal only)."""
     session_cost = usage.cost_usd
     cum_cost = cumulative_in * _PRICE_IN + cumulative_out * _PRICE_OUT
-
     lines = {
         "ro": (
-            "\n\n---\n💸 *Cost analiză Gemini AI*\n"
-            f"• Sesiunea curentă: `${session_cost * 10:.4f}` _(×10)_\n"
-            f"• Total acumulat:   `${cum_cost * 10:.4f}` _(×10)_\n"
-            f"  _(tokeni: {usage.tokens_in:,} in / {usage.tokens_out:,} out)_"
+            f"\n\n💸 Cost sesiune: `${session_cost:.5f}` | Total: `${cum_cost:.5f}`"
+            f"\n_({usage.tokens_in:,} in / {usage.tokens_out:,} out tokens)_"
         ),
         "ru": (
-            "\n\n---\n💸 *Стоимость анализа Gemini AI*\n"
-            f"• Текущая сессия: `${session_cost * 10:.4f}` _(×10)_\n"
-            f"• Всего накоплено: `${cum_cost * 10:.4f}` _(×10)_\n"
-            f"  _(токены: {usage.tokens_in:,} in / {usage.tokens_out:,} out)_"
+            f"\n\n💸 Сессия: `${session_cost:.5f}` | Всего: `${cum_cost:.5f}`"
+            f"\n_({usage.tokens_in:,} in / {usage.tokens_out:,} out tokens)_"
         ),
         "en": (
-            "\n\n---\n💸 *Gemini AI analysis cost*\n"
-            f"• Current session: `${session_cost * 10:.4f}` _(×10)_\n"
-            f"• Cumulative total: `${cum_cost * 10:.4f}` _(×10)_\n"
-            f"  _(tokens: {usage.tokens_in:,} in / {usage.tokens_out:,} out)_"
+            f"\n\n💸 Session: `${session_cost:.5f}` | Total: `${cum_cost:.5f}`"
+            f"\n_({usage.tokens_in:,} in / {usage.tokens_out:,} out tokens)_"
         ),
     }
     return lines.get(lang, lines["ro"])
+
+
+# ── Short summary extraction ──────────────────────────────────────────────────
+
+import json as _json
+
+_SUMMARY_PROMPT = """
+From this Carfax vehicle history report extract ONLY:
+- Vehicle make, model, trim, year
+- Last known US state/location
+- Total number of owners
+- Total number of accident or damage events (0 if none)
+
+Respond with VALID JSON only, no markdown, no explanation:
+{{"make": "...", "model": "...", "year": 0, "location": "...", "owners": 0, "accidents": 0}}
+
+CARFAX TEXT:
+{raw_text}
+"""
+
+
+@dataclass
+class VehicleSummary:
+    make: str = "N/A"
+    model: str = "N/A"
+    year: str = "N/A"
+    location: str = "N/A"
+    owners: int = 0
+    accidents: int = 0
+
+
+async def extract_summary(raw_text: str) -> VehicleSummary:
+    """Quick structured extraction — single call, JSON output."""
+    prompt = _SUMMARY_PROMPT.format(raw_text=raw_text[:30_000])
+    models = await asyncio.to_thread(_sorted_models)
+    global _cached_model
+    if _cached_model and _cached_model in models:
+        models = [_cached_model] + [m for m in models if m != _cached_model]
+
+    for model in models:
+        try:
+            response = await asyncio.to_thread(
+                _client.models.generate_content,
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=200),
+            )
+            raw = response.text.strip().strip("```json").strip("```").strip()
+            data = _json.loads(raw)
+            return VehicleSummary(
+                make      = str(data.get("make", "N/A")),
+                model     = str(data.get("model", "N/A")),
+                year      = str(data.get("year", "N/A")),
+                location  = str(data.get("location", "N/A")),
+                owners    = int(data.get("owners", 0)),
+                accidents = int(data.get("accidents", 0)),
+            )
+        except Exception as exc:
+            if _is_unavailable(exc):
+                continue
+            logger.warning("Summary extraction failed: %s", exc)
+            break
+    return VehicleSummary()
