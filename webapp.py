@@ -188,11 +188,15 @@ main{flex:1;max-width:860px;width:100%;margin:0 auto;padding:32px 20px 64px}
 .analysis-content hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 
 /* ── PDF SECTION ── */
-.pdf-area{text-align:center;padding:48px 24px}
-.pdf-icon{font-size:2.5rem;margin-bottom:14px}
-.pdf-vin{font-family:var(--mono);font-size:.8rem;color:var(--text-3);letter-spacing:.08em;margin-bottom:18px}
-.pdf-cta{display:inline-flex;align-items:center;gap:9px;background:var(--red);color:#fff;padding:13px 28px;border-radius:var(--radius);font-size:.9rem;font-weight:600;text-decoration:none;transition:background var(--transition),transform var(--transition);letter-spacing:.02em}
-.pdf-cta:hover{background:var(--red-dim);transform:translateY(-1px)}
+.pdf-area{padding:20px 24px 24px}
+.pdf-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap}
+.pdf-vin{font-family:var(--mono);font-size:.78rem;color:var(--text-3);letter-spacing:.08em}
+.pdf-cta{display:inline-flex;align-items:center;gap:8px;background:var(--red);color:#fff;padding:9px 20px;border-radius:8px;font-size:.84rem;font-weight:600;text-decoration:none;transition:background var(--transition);letter-spacing:.02em;white-space:nowrap}
+.pdf-cta:hover{background:var(--red-dim)}
+.pdf-frame-wrap{border-radius:8px;overflow:hidden;border:1px solid var(--border);background:#1c1c1c}
+.pdf-frame{width:100%;height:72vh;min-height:480px;border:none;display:block}
+.pdf-fallback{display:none;text-align:center;padding:40px 20px;color:var(--text-3);font-size:.88rem}
+.pdf-fallback a{color:var(--red);font-weight:600;text-decoration:none}
 
 /* ── NOT FOUND ── */
 .not-found{text-align:center;padding:60px 24px}
@@ -297,16 +301,31 @@ def analysis_html(report, lang: str) -> str:
 
     has_pdf = bool(report.pdf_file)
     if has_pdf:
+        pdf_url = f"/pdf/{report.vin}"
         pdf_content = f"""
         <div class="pdf-area">
-          <div class="pdf-icon">📄</div>
-          <div class="pdf-vin">{report.vin}</div>
-          <a href="/pdf/{report.vin}" target="_blank" class="pdf-cta">
-            ↓ &nbsp;{tr['btn_pdf']}
-          </a>
+          <div class="pdf-toolbar">
+            <span class="pdf-vin">Carfax · {report.vin}</span>
+            <a href="{pdf_url}" download="carfax_{report.vin}.pdf" class="pdf-cta">
+              ↓ &nbsp;{tr['btn_pdf']}
+            </a>
+          </div>
+          <div class="pdf-frame-wrap">
+            <iframe
+              class="pdf-frame"
+              src="{pdf_url}#toolbar=1&navpanes=0&scrollbar=1&view=FitH"
+              title="Carfax {report.vin}"
+              onload="this.nextElementSibling.style.display='none'"
+              onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+            </iframe>
+            <div class="pdf-fallback">
+              Browserul tău nu poate afișa PDF-ul direct.
+              <a href="{pdf_url}" target="_blank">Deschide PDF →</a>
+            </div>
+          </div>
         </div>"""
     else:
-        pdf_content = '<div class="pdf-area"><p style="color:var(--text-3);font-size:.9rem">PDF indisponibil.</p></div>'
+        pdf_content = '<div class="pdf-area"><p style="color:var(--text-3);font-size:.9rem;padding:40px;text-align:center">PDF indisponibil.</p></div>'
 
     return f"""
 <div class="card">
@@ -407,10 +426,14 @@ async def serve_pdf(vin: str):
         )
     if not result or not result.pdf_file:
         return Response(content="PDF not found", status_code=404)
+    # inline → renders in iframe/browser; the download button uses the `download` attribute
     return Response(
         content=bytes(result.pdf_file),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'inline; filename="carfax_{vin}.pdf"'},
+        headers={
+            "Content-Disposition": f'inline; filename="carfax_{vin}.pdf"',
+            "Cache-Control": "private, max-age=3600",
+        },
     )
 
 
