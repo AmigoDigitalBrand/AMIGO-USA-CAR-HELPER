@@ -333,6 +333,49 @@ async def serve_pdf(vin: str):
     )
 
 
+@app.get("/bmw/{vin}", response_class=HTMLResponse)
+async def bmw_equipment(vin: str, lang: str = "ro"):
+    vin = vin.strip().upper()
+    lang = lang if lang in T else "ro"
+
+    async with AsyncSessionLocal() as session:
+        from database import CarfaxReport
+        result = await session.scalar(
+            select(CarfaxReport).where(CarfaxReport.vin == vin)
+        )
+
+    if not result or not result.bmw_equipment:
+        content = f"""
+<div class="card">
+  <div class="not-found">
+    <div class="not-found-icon">🏎️</div>
+    <h2>BMW Equipment Not Found</h2>
+    <p style="color:var(--muted)">No equipment data available for VIN <strong>{vin}</strong>.</p>
+    <a href="/search?lang={lang}&vin={vin}" style="display:inline-block;margin-top:20px;color:var(--red);font-weight:600;">← Back to analysis</a>
+  </div>
+</div>"""
+        return HTMLResponse(html_shell(content, lang, vin))
+
+    equip_html = md.markdown(result.bmw_equipment, extensions=["nl2br"])
+
+    content = f"""
+<div class="card">
+  <div class="card-header">
+    <span>⚙️ BMW Equipment</span>
+    <span class="vin-badge">{vin}</span>
+  </div>
+  <div style="padding:28px">
+    <p style="color:var(--muted);font-size:.85rem;margin-bottom:20px">
+      Source: <a href="https://bimmer.work" target="_blank" style="color:var(--red)">bimmer.work</a>
+      · <a href="/search?lang={lang}&vin={vin}" style="color:var(--red)">← Back to full analysis</a>
+    </p>
+    <div class="analysis-body active" style="display:block">{equip_html}</div>
+  </div>
+</div>"""
+
+    return HTMLResponse(html_shell(content, lang, vin))
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))

@@ -235,6 +235,66 @@ def format_cost(usage: TokenUsage, cumulative_in: int, cumulative_out: int, lang
     return lines.get(lang, lines["ro"])
 
 
+# ── BMW equipment synthesis ───────────────────────────────────────────────────
+
+_BMW_EQUIPMENT_PROMPT = """
+You are given raw text scraped from bimmer.work — a BMW VIN decoder.
+The text contains equipment codes and descriptions for a specific BMW vehicle.
+
+Produce a clean, structured Markdown summary of the vehicle's equipment in {language}.
+Group items under these headers (skip any with no data):
+
+## 🏎️ Model & Production
+(production date, plant, model line, body type, engine, transmission)
+
+## 🎨 Exterior
+(paint color, wheels, body kit, glass, mirrors)
+
+## 🪑 Interior
+(upholstery, trim, seats, steering wheel)
+
+## 🛠️ Options & Packages
+(all option codes with descriptions — list each one as a bullet)
+
+## 🔊 Technology & Safety
+(navigation, audio, driver assist, cameras, parking sensors, etc.)
+
+Be concise and factual. Skip codes with no description.
+
+BIMMER.WORK RAW TEXT:
+{raw_text}
+"""
+
+
+async def synthesize_bmw_equipment(raw_text: str, language: str = "ro") -> str:
+    """Synthesize BMW equipment from bimmer.work scraped text."""
+    lang_map = {"ro": "Romanian", "ru": "Russian", "en": "English"}
+    prompt = _BMW_EQUIPMENT_PROMPT.format(
+        language=lang_map.get(language, "Romanian"),
+        raw_text=raw_text[:12_000],
+    )
+    models = await asyncio.to_thread(_sorted_models)
+    global _cached_model
+    if _cached_model and _cached_model in models:
+        models = [_cached_model] + [m for m in models if m != _cached_model]
+
+    for model in models:
+        try:
+            response = await asyncio.to_thread(
+                _client.models.generate_content,
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(temperature=0.2, max_output_tokens=2000),
+            )
+            logger.info("✅ BMW equipment synthesized via %s", model)
+            return response.text.strip()
+        except Exception as exc:
+            if _is_unavailable(exc):
+                continue
+            raise
+    return ""
+
+
 # ── Short summary extraction ──────────────────────────────────────────────────
 
 import json as _json

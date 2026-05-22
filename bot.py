@@ -15,7 +15,8 @@ from telegram.ext import (
     filters,
 )
 
-from analyzer import analyze_report, extract_summary, format_cost
+from analyzer import analyze_report, extract_summary, format_cost, synthesize_bmw_equipment
+from bmw_lookup import fetch_bimmer_equipment, is_bmw
 from config import TELEGRAM_BOT_TOKEN
 from database import AsyncSessionLocal, CarfaxReport, init_db
 from sqlalchemy import func
@@ -102,6 +103,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             analyze_report(raw_text),
             extract_summary(raw_text),
         )
+
+        # 3b. If BMW — fetch equipment from bimmer.work
+        bmw_equipment_text = ""
+        if is_bmw(summary.make):
+            logger.info("BMW detected (%s) — fetching bimmer.work equipment", summary.make)
+            bimmer = await fetch_bimmer_equipment(vin)
+            if bimmer.found:
+                bmw_equipment_text = await synthesize_bmw_equipment(bimmer.raw_html_text, lang)
         usage = analyses["usage"]
 
         # 4. Upsert into DB + fetch cumulative token totals
@@ -116,9 +125,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 existing.ai_analysis_ro = analyses["ro"]
                 existing.ai_analysis_ru = analyses["ru"]
                 existing.ai_analysis_en = analyses["en"]
-                existing.tokens_in  = usage.tokens_in
-                existing.tokens_out = usage.tokens_out
-                existing.created_at = datetime.now(timezone.utc)
+                existing.tokens_in     = usage.tokens_in
+                existing.tokens_out    = usage.tokens_out
+                existing.bmw_equipment = bmw_equipment_text or existing.bmw_equipment
+                existing.created_at    = datetime.now(timezone.utc)
                 await session.commit()
                 status_key = "updated"
             else:
@@ -132,6 +142,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                     ai_analysis_en=analyses["en"],
                     tokens_in=usage.tokens_in,
                     tokens_out=usage.tokens_out,
+                    bmw_equipment=bmw_equipment_text or None,
                 )
                 session.add(report)
                 await session.commit()
@@ -161,6 +172,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         analysis_label = {"ro": "📊 Analiza Feduk", "ru": "📊 Анализ Feduk", "en": "📊 Feduk Analysis"}.get(lang, "📊 Analysis")
         pdf_label      = {"ro": "📄 Raport PDF",    "ru": "📄 PDF Отчёт",    "en": "📄 PDF Report"}.get(lang, "📄 PDF")
+        equip_label    = {"ro": "⚙️ Echipare BMW",  "ru": "⚙️ Комплектация BMW", "en": "⚙️ BMW Equipment"}.get(lang, "⚙️ BMW Equipment")
+        equip_url      = f"{SITE}/bmw/{vin}"
 
         card = (
             f"🚗 *{summary.make} {summary.model} ({summary.year})*\n"
@@ -171,6 +184,8 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"[{analysis_label}]({site_url})\n"
             f"[{pdf_label}]({pdf_url})"
         )
+        if bmw_equipment_text:
+            card += f"\n[{equip_label}]({equip_url})"
 
         cost_note = format_cost(usage, cum_in, cum_out, lang)
 

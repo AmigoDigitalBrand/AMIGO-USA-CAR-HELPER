@@ -24,8 +24,9 @@ class CarfaxReport(Base):
     ai_analysis_ro = Column(Text, nullable=True)
     ai_analysis_ru = Column(Text, nullable=True)
     ai_analysis_en = Column(Text, nullable=True)
-    tokens_in  = Column(Integer, default=0, nullable=False, server_default="0")
-    tokens_out = Column(Integer, default=0, nullable=False, server_default="0")
+    tokens_in    = Column(Integer, default=0, nullable=False, server_default="0")
+    tokens_out   = Column(Integer, default=0, nullable=False, server_default="0")
+    bmw_equipment = Column(Text, nullable=True)   # synthesized equipment from bimmer.work
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -39,7 +40,8 @@ async def init_db() -> None:
         await conn.run_sync(Base.metadata.create_all)
         # Idempotent migrations — ADD COLUMN IF NOT EXISTS is safe to run every time
         for sql in [
-            "ALTER TABLE carfax_reports ADD COLUMN IF NOT EXISTS tokens_in  INTEGER NOT NULL DEFAULT 0",
-            "ALTER TABLE carfax_reports ADD COLUMN IF NOT EXISTS tokens_out INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE carfax_reports ADD COLUMN IF NOT EXISTS tokens_in    INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE carfax_reports ADD COLUMN IF NOT EXISTS tokens_out   INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE carfax_reports ADD COLUMN IF NOT EXISTS bmw_equipment TEXT",
         ]:
             await conn.execute(text(sql))

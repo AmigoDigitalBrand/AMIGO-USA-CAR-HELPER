@@ -30,7 +30,8 @@ COPY --from=tg-builder /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-b
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && playwright install chromium --with-deps
 
 COPY . .
 
