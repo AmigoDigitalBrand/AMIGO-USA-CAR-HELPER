@@ -7,7 +7,18 @@ from google.genai import types
 from config import GEMINI_API_KEY
 
 _client = genai.Client(api_key=GEMINI_API_KEY)
-_MODEL = "gemini-2.0-flash"
+
+# Tried in order — first one that works wins
+_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-001",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-001",
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-pro",
+    "gemini-1.5-pro-latest",
+]
 
 _SYSTEM_INSTRUCTION = """
 You are a cynical, seasoned auto dealer with 20+ years on the floor.
@@ -54,19 +65,37 @@ def _build_prompt(raw_text: str, language: str) -> str:
     return _PROMPT_TEMPLATE.format(language=lang_map[language], raw_text=raw_text[:60_000])
 
 
+import logging
+logger = logging.getLogger(__name__)
+
+
 async def _generate_single(raw_text: str, language: str) -> str:
     prompt = _build_prompt(raw_text, language)
-    response = await asyncio.to_thread(
-        _client.models.generate_content,
-        model=_MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=_SYSTEM_INSTRUCTION,
-            temperature=0.4,
-            max_output_tokens=2048,
-        ),
-    )
-    return response.text.strip()
+    last_exc = None
+    for model in _MODELS:
+        try:
+            response = await asyncio.to_thread(
+                _client.models.generate_content,
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=_SYSTEM_INSTRUCTION,
+                    temperature=0.4,
+                    max_output_tokens=2048,
+                ),
+            )
+            logger.info("Gemini model used: %s (lang=%s)", model, language)
+            return response.text.strip()
+        except Exception as exc:
+            # Skip if model is unavailable / deprecated; raise on other errors
+            msg = str(exc).lower()
+            if any(k in msg for k in ("not found", "404", "no longer available",
+                                       "deprecated", "not_found", "does not exist")):
+                logger.warning("Model %s unavailable, trying next. (%s)", model, exc)
+                last_exc = exc
+                continue
+            raise  # unexpected error — surface immediately
+    raise RuntimeError(f"All Gemini models failed. Last error: {last_exc}")
 
 
 async def analyze_report(raw_text: str) -> AnalysisResult:
