@@ -71,8 +71,10 @@ def _sorted_models() -> list[str]:
 # ── Prompt ───────────────────────────────────────────────────────────────────
 
 _SYSTEM_INSTRUCTION = """
-You are a cynical, battle-hardened auto dealer with 20+ years buying and selling used cars from US auctions.
-You call it like it is. No sugar-coating. Your job is to protect the buyer from bad deals.
+You are a professional automotive analyst with 15+ years of experience evaluating used vehicles.
+You write clear, factual, well-structured reports. Your tone is neutral and objective —
+not overly dry or robotic, but not sensationalist either. You highlight both positives and red flags
+with equal weight. Your goal is to help the buyer make an informed decision.
 """.strip()
 
 _PROMPT_TEMPLATE = """
@@ -237,34 +239,56 @@ def format_cost(usage: TokenUsage, cumulative_in: int, cumulative_out: int, lang
 
 import json as _json
 
-_SUMMARY_PROMPT = """
-From this Carfax vehicle history report extract ONLY:
-- Vehicle make, model, trim, year
-- Last known US state/location
-- Total number of owners
-- Total number of accident or damage events (0 if none)
+_SUMMARY_PROMPT = """You are a data extractor. Read the Carfax report below and return a single JSON object.
 
-Respond with VALID JSON only, no markdown, no explanation:
-{{"make": "...", "model": "...", "year": 0, "location": "...", "owners": 0, "accidents": 0}}
+Extract these exact fields:
+- make: car brand (e.g. "BMW")
+- model: model and trim (e.g. "X3 xDrive28i")
+- year: production year as integer (e.g. 2021)
+- location: last known US state (e.g. "California")
+- owners: total number of owners as integer
+- accidents: total number of accident or damage events as integer (0 if none)
 
-CARFAX TEXT:
-{raw_text}
-"""
+Return ONLY the raw JSON. No markdown fences, no explanation, nothing else.
+Example: {{"make":"BMW","model":"X3 xDrive28i","year":2021,"location":"California","owners":2,"accidents":1}}
+
+CARFAX REPORT:
+{raw_text}"""
 
 
 @dataclass
 class VehicleSummary:
-    make: str = "N/A"
-    model: str = "N/A"
+    make: str = "Unknown"
+    model: str = "Unknown"
     year: str = "N/A"
     location: str = "N/A"
     owners: int = 0
     accidents: int = 0
 
 
+def _parse_summary_json(text: str) -> VehicleSummary:
+    """Extract JSON from model response, tolerating markdown fences."""
+    import re
+    # strip markdown code fences if present
+    clean = re.sub(r"```[a-z]*\n?", "", text).strip()
+    # find first {...} block
+    match = re.search(r"\{.*?\}", clean, re.DOTALL)
+    if not match:
+        raise ValueError(f"No JSON found in: {text[:200]}")
+    data = _json.loads(match.group())
+    return VehicleSummary(
+        make      = str(data.get("make", "Unknown")).strip(),
+        model     = str(data.get("model", "Unknown")).strip(),
+        year      = str(data.get("year", "N/A")).strip(),
+        location  = str(data.get("location", "N/A")).strip(),
+        owners    = int(data.get("owners", 0)),
+        accidents = int(data.get("accidents", 0)),
+    )
+
+
 async def extract_summary(raw_text: str) -> VehicleSummary:
-    """Quick structured extraction — single call, JSON output."""
-    prompt = _SUMMARY_PROMPT.format(raw_text=raw_text[:30_000])
+    """Quick structured extraction — single Gemini call, JSON output."""
+    prompt = _SUMMARY_PROMPT.format(raw_text=raw_text[:25_000])
     models = await asyncio.to_thread(_sorted_models)
     global _cached_model
     if _cached_model and _cached_model in models:
@@ -276,21 +300,15 @@ async def extract_summary(raw_text: str) -> VehicleSummary:
                 _client.models.generate_content,
                 model=model,
                 contents=prompt,
-                config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=200),
+                config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=300),
             )
-            raw = response.text.strip().strip("```json").strip("```").strip()
-            data = _json.loads(raw)
-            return VehicleSummary(
-                make      = str(data.get("make", "N/A")),
-                model     = str(data.get("model", "N/A")),
-                year      = str(data.get("year", "N/A")),
-                location  = str(data.get("location", "N/A")),
-                owners    = int(data.get("owners", 0)),
-                accidents = int(data.get("accidents", 0)),
-            )
+            result = _parse_summary_json(response.text)
+            logger.info("✅ Summary extracted via %s: %s", model, result)
+            return result
         except Exception as exc:
             if _is_unavailable(exc):
                 continue
-            logger.warning("Summary extraction failed: %s", exc)
-            break
+            logger.warning("Summary extraction failed (%s): %s — raw: %s",
+                           model, exc, getattr(exc, '__context__', ''))
+            continue   # try next model rather than giving up
     return VehicleSummary()
