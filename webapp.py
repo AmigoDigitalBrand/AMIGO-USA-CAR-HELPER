@@ -62,8 +62,8 @@ FAVICON_URI  = f"data:image/svg+xml;base64,{_FAVICON_B64}"
 T = {
     "ro": {
         "title": "Verifică Mașina",
-        "subtitle": "Introdu VIN-ul sau numărul de telefon pentru raportul complet",
-        "placeholder_vin": "ex: 5UXTS1C00M9H70629",
+        "subtitle": "Introdu VIN-ul sau numărul de telefon — sistemul detectează automat",
+        "placeholder_vin": "VIN sau număr de telefon...",
         "placeholder_phone": "ex: 069 123 456",
         "btn_search": "Verifică",
         "tab_vin": "🔑 VIN",
@@ -97,8 +97,8 @@ T = {
     },
     "ru": {
         "title": "Проверить Автомобиль",
-        "subtitle": "Введите VIN или номер телефона для полного отчёта",
-        "placeholder_vin": "напр.: 5UXTS1C00M9H70629",
+        "subtitle": "Введите VIN или телефон — система определит автоматически",
+        "placeholder_vin": "VIN или номер телефона...",
         "placeholder_phone": "напр.: 069 123 456",
         "btn_search": "Проверить",
         "tab_vin": "🔑 VIN",
@@ -132,8 +132,8 @@ T = {
     },
     "en": {
         "title": "Check the Car",
-        "subtitle": "Enter VIN or phone number for the full report",
-        "placeholder_vin": "e.g. 5UXTS1C00M9H70629",
+        "subtitle": "Enter VIN or phone number — auto-detected",
+        "placeholder_vin": "VIN or phone number...",
         "placeholder_phone": "e.g. 069 123 456",
         "btn_search": "Check",
         "tab_vin": "🔑 VIN",
@@ -413,10 +413,7 @@ def html_shell(content: str, lang: str = "ro", vin: str = "",
                   if is_admin else
                   '<a href="/admin/login" class="admin-header-btn" style="opacity:.4">Admin</a>')
 
-    vin_active   = "active" if search_mode == "vin"   else ""
-    phone_active = "active" if search_mode == "phone" else ""
-    vin_display   = "" if search_mode == "phone" else "flex"
-    phone_display = "flex" if search_mode == "phone" else "none"
+    query_val = vin or phone
 
     return f"""<!DOCTYPE html>
 <html lang="{lang}">
@@ -447,26 +444,13 @@ def html_shell(content: str, lang: str = "ro", vin: str = "",
   <h1>{tr['title']}</h1>
   <p>{tr['subtitle']}</p>
   <div class="search-wrap">
-    <div class="search-mode">
-      <button class="search-mode-btn {vin_active}" onclick="setMode('vin')">{tr['tab_vin']}</button>
-      <button class="search-mode-btn {phone_active}" onclick="setMode('phone')">{tr['tab_phone']}</button>
-    </div>
-    <form id="form-vin" method="get" action="/search" autocomplete="off" style="display:{vin_display}">
+    <form method="get" action="/search" autocomplete="off">
       <input type="hidden" name="lang" value="{lang}"/>
-      <input type="hidden" name="mode" value="vin"/>
       <div class="search-box">
-        <input name="vin" type="text" placeholder="{tr['placeholder_vin']}"
-               value="{vin}" maxlength="17" autocapitalize="characters"
+        <input name="q" type="text" placeholder="{tr['placeholder_vin']}"
+               value="{query_val}"
+               autocapitalize="characters"
                oninput="this.value=this.value.toUpperCase()"/>
-        <button type="submit" class="search-btn">{tr['btn_search']}</button>
-      </div>
-    </form>
-    <form id="form-phone" method="get" action="/search" autocomplete="off" style="display:{phone_display}">
-      <input type="hidden" name="lang" value="{lang}"/>
-      <input type="hidden" name="mode" value="phone"/>
-      <div class="search-box">
-        <input name="phone" type="tel" placeholder="{tr['placeholder_phone']}"
-               value="{phone}"/>
         <button type="submit" class="search-btn">{tr['btn_search']}</button>
       </div>
     </form>
@@ -477,12 +461,6 @@ def html_shell(content: str, lang: str = "ro", vin: str = "",
 
 <footer>{tr['footer'].replace('Feduk USA','<span>Feduk USA</span>')}</footer>
 <script>
-function setMode(m){{
-  document.querySelectorAll('.search-mode-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('form-vin').style.display   = m==='vin'   ? 'flex' : 'none';
-  document.getElementById('form-phone').style.display = m==='phone' ? 'flex' : 'none';
-  event.target.classList.add('active');
-}}
 function switchTab(name,el){{
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(t=>t.classList.remove('active'));
@@ -1030,26 +1008,27 @@ async def index(request: Request, lang: str = "ro"):
 
 
 @app.get("/search", response_class=HTMLResponse)
-async def search(request: Request, vin: str = "", phone: str = "",
-                 mode: str = "vin", lang: str = "ro"):
-    lang  = lang if lang in T else "ro"
-    vin   = vin.strip().upper()
-    phone = phone.strip()
-    token = request.cookies.get(ADMIN_COOKIE)
+async def search(request: Request, q: str = "", vin: str = "", phone: str = "", lang: str = "ro"):
+    lang = lang if lang in T else "ro"
+    tr   = T[lang]
+    token    = request.cookies.get(ADMIN_COOKIE)
     is_admin = _valid_session(token)
-    tr = T[lang]
 
-    # ── Phone search ──────────────────────────────────────────────────────
-    if mode == "phone" or (phone and not vin):
-        if not phone:
-            return HTMLResponse(html_shell("", lang, phone=phone, search_mode="phone", is_admin=is_admin))
-        digits = re.sub(r"\D", "", phone)
-        if len(digits) < 7:
-            err = f'<p class="error-msg">{tr["error_phone"]}</p>'
-            return HTMLResponse(html_shell(err, lang, phone=phone, search_mode="phone", is_admin=is_admin))
+    # Support legacy ?vin= and ?phone= params
+    query = (q or vin or phone).strip()
+    if not query:
+        return HTMLResponse(html_shell("", lang, is_admin=is_admin))
 
+    # ── Auto-detect: VIN or phone ─────────────────────────────────────────
+    digits      = re.sub(r"\D", "", query)
+    looks_phone = len(digits) >= 7 and len(re.sub(r"\s", "", query)) <= 15 and not VIN_RE.match(query.upper())
+    looks_vin   = bool(VIN_RE.match(query.upper()))
+
+    from database import CarfaxReport
+
+    # ── Phone path ────────────────────────────────────────────────────────
+    if looks_phone:
         async with AsyncSessionLocal() as session:
-            from database import CarfaxReport
             results = (await session.scalars(
                 select(CarfaxReport).where(
                     CarfaxReport.client_phone.ilike(f"%{digits[-7:]}%")
@@ -1058,26 +1037,25 @@ async def search(request: Request, vin: str = "", phone: str = "",
 
         if not results:
             content = f"""<div class="card"><div class="not-found">
-              <div class="nf-icon">📱</div>
-              <h2>{tr['phone_not_found_title']}</h2>
-              <p>{tr['phone_not_found_body'].format(phone=phone)}</p>
+              <div class="nf-icon">🔍</div>
+              <h2>{tr['not_found_title']}</h2>
+              <p>Detalii despre această mașină nu sunt prezente în registrul <strong>Feduk USA Auto</strong>.</p>
               <p>{tr['not_found_cta']}</p>
               <a href="https://t.me/fedukusa" target="_blank" class="tg-btn">✈️ &nbsp;{tr['contact_btn']}</a>
             </div></div>"""
-            return HTMLResponse(html_shell(content, lang, phone=phone, search_mode="phone", is_admin=is_admin))
+            return HTMLResponse(html_shell(content, lang, phone=query, is_admin=is_admin))
 
         if len(results) == 1:
-            return RedirectResponse(url=f"/search?vin={results[0].vin}&lang={lang}", status_code=303)
+            return RedirectResponse(url=f"/search?q={results[0].vin}&lang={lang}", status_code=303)
 
-        # Multiple cars — show selection
         items = ""
         for r in results:
             make_info = ""
             if r.ai_analysis_ro:
-                first_line = r.ai_analysis_ro.split("\n")[0][:80]
-                make_info = first_line.replace("#","").strip()
-            proc_badge = ' <span class="badge badge-green" style="font-size:.65rem">✓ Procurat</span>' if getattr(r,"is_procured",False) else ""
-            items += f"""<a href="/search?vin={r.vin}&lang={lang}" class="car-list-item">
+                make_info = r.ai_analysis_ro.split("\n")[0][:80].replace("#","").strip()
+            proc_badge = (' <span class="badge badge-green" style="font-size:.65rem">✓ Procurat</span>'
+                         if getattr(r, "is_procured", False) else "")
+            items += f"""<a href="/search?q={r.vin}&lang={lang}" class="car-list-item">
               <div class="car-list-info">
                 <span class="car-list-name">{make_info or r.vin}{proc_badge}</span>
                 <span class="car-list-vin">VIN: {r.vin}</span>
@@ -1086,31 +1064,33 @@ async def search(request: Request, vin: str = "", phone: str = "",
             </a>"""
 
         content = f"""<div class="card">
-          <div class="card-top">
-            <span class="card-top-title">{tr['phone_select_title']}</span>
-          </div>
+          <div class="card-top"><span class="card-top-title">{tr['phone_select_title']}</span></div>
           <div class="tab-pane active">
             <p style="color:var(--text-2);font-size:.9rem;margin-bottom:16px">
-              {tr['phone_select_body'].format(n=len(results), phone=phone)}
+              {tr['phone_select_body'].format(n=len(results), phone=query)}
             </p>
             <div class="car-list">{items}</div>
           </div>
         </div>"""
-        return HTMLResponse(html_shell(content, lang, phone=phone, search_mode="phone", is_admin=is_admin))
+        return HTMLResponse(html_shell(content, lang, phone=query, is_admin=is_admin))
 
-    # ── VIN search ────────────────────────────────────────────────────────
-    if not vin:
-        return HTMLResponse(html_shell("", lang, is_admin=is_admin))
-    if not VIN_RE.match(vin):
-        err = f'<p class="error-msg">{tr["error_vin"]}</p>'
-        return HTMLResponse(html_shell(err, lang, vin=vin, is_admin=is_admin))
+    # ── VIN path ──────────────────────────────────────────────────────────
+    if looks_vin:
+        vin_upper = query.upper()
+        async with AsyncSessionLocal() as session:
+            result = await session.scalar(select(CarfaxReport).where(CarfaxReport.vin == vin_upper))
+        if result:
+            return HTMLResponse(html_shell(analysis_html(result, lang), lang, vin=vin_upper, is_admin=is_admin))
 
-    async with AsyncSessionLocal() as session:
-        from database import CarfaxReport
-        result = await session.scalar(select(CarfaxReport).where(CarfaxReport.vin == vin))
-
-    content = analysis_html(result, lang) if result else not_found_html(vin, lang)
-    return HTMLResponse(html_shell(content, lang, vin=vin, is_admin=is_admin))
+    # ── Nothing found ─────────────────────────────────────────────────────
+    content = f"""<div class="card"><div class="not-found">
+      <div class="nf-icon">🔍</div>
+      <h2>{tr['not_found_title']}</h2>
+      <p>Detalii despre această mașină nu sunt prezente în registrul <strong>Feduk USA Auto</strong>.</p>
+      <p>{tr['not_found_cta']}</p>
+      <a href="https://t.me/fedukusa" target="_blank" class="tg-btn">✈️ &nbsp;{tr['contact_btn']}</a>
+    </div></div>"""
+    return HTMLResponse(html_shell(content, lang, vin=query, is_admin=is_admin))
 
 
 @app.get("/pdf/{vin}")
