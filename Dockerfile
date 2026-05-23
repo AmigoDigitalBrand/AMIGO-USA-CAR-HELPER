@@ -21,6 +21,9 @@ RUN git clone --depth 1 --recurse-submodules \
 # ─────────────────────────────────────────────
 FROM python:3.11-slim
 
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV DISPLAY=:99
+
 RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
     && rm -rf /var/lib/apt/lists/*
 

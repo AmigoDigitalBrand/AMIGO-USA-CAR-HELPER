@@ -548,6 +548,27 @@ async def bmw_equipment(vin: str, lang: str = "ro"):
     return HTMLResponse(html_shell(content, lang, vin))
 
 
+@app.get("/debug/bmw/{vin}")
+async def debug_bmw(vin: str):
+    """Diagnostic endpoint — runs bimmer.work fetch and returns raw result as JSON."""
+    from fastapi.responses import JSONResponse
+    vin = vin.strip().upper()
+    try:
+        from bmw_lookup import fetch_bimmer_equipment
+        result = await fetch_bimmer_equipment(vin)
+        return JSONResponse({
+            "vin": vin,
+            "found": result.found,
+            "page_url": result.page_url,
+            "error": result.error,
+            "text_length": len(result.raw_html_text),
+            "text_preview": result.raw_html_text[:800] if result.raw_html_text else "",
+        })
+    except Exception as exc:
+        import traceback
+        return JSONResponse({"vin": vin, "exception": str(exc), "traceback": traceback.format_exc()}, status_code=500)
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
