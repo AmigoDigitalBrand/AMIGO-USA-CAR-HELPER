@@ -1212,14 +1212,14 @@ async def admin_dashboard(request: Request):
 
     from database import CarfaxReport
     async with AsyncSessionLocal() as session:
-        total    = await session.scalar(func.count(CarfaxReport.id)) or 0
+        total    = await session.scalar(select(func.count(CarfaxReport.id))) or 0
         procured = await session.scalar(
-            func.count(CarfaxReport.id).filter(CarfaxReport.is_procured == True)) or 0
+            select(func.count(CarfaxReport.id)).where(CarfaxReport.is_procured == True)) or 0
         clients  = await session.scalar(
-            func.count(func.distinct(CarfaxReport.client_phone)).filter(
+            select(func.count(func.distinct(CarfaxReport.client_phone))).where(
                 CarfaxReport.client_phone.isnot(None))) or 0
         priced   = await session.scalar(
-            func.count(CarfaxReport.id).filter(
+            select(func.count(CarfaxReport.id)).where(
                 CarfaxReport.is_procured == True,
                 CarfaxReport.price_car_usd.isnot(None))) or 0
         recent   = (await session.scalars(
