@@ -1136,6 +1136,30 @@ async def bmw_equipment(vin: str, lang: str = "ro"):
     return RedirectResponse(url=f"/search?vin={vin}&lang={lang}", status_code=301)
 
 
+@app.get("/debug/car/{vin}")
+async def debug_car(vin: str):
+    """Show DB state for a VIN — pricing, client, procured status."""
+    vin = vin.strip().upper()
+    from database import CarfaxReport
+    async with AsyncSessionLocal() as session:
+        r = await session.scalar(select(CarfaxReport).where(CarfaxReport.vin == vin))
+    if not r:
+        return JSONResponse({"error": "VIN not found"}, status_code=404)
+    return JSONResponse({
+        "vin":               r.vin,
+        "is_procured":       r.is_procured,
+        "client_name":       r.client_name,
+        "client_phone":      r.client_phone,
+        "price_car_usd":     str(r.price_car_usd),
+        "price_auction_usd": str(r.price_auction_usd),
+        "price_transfer_usd":str(r.price_transfer_usd),
+        "price_shipping_usd":str(r.price_shipping_usd),
+        "price_customs_usd": str(r.price_customs_usd),
+        "price_broker_usd":  str(r.price_broker_usd),
+        "has_prices_check":  _has_prices(r),
+    })
+
+
 @app.get("/debug/bmw/{vin}")
 async def debug_bmw(vin: str):
     vin = vin.strip().upper()
