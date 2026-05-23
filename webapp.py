@@ -470,7 +470,7 @@ function switchTab(name,el){{
 function switchLang(l){{
   document.querySelectorAll('.lang-pill').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.lang-body').forEach(b=>b.classList.remove('active'));
-  document.querySelector('.lang-pill[onclick*="\''+l+'\'"]').classList.add('active');
+  document.querySelector('.lang-pill[data-lang="'+l+'"]').classList.add('active');
   document.getElementById('ab-'+l).classList.add('active');
 }}
 function copyVin(el,vin){{
@@ -606,7 +606,7 @@ def analysis_html(report, lang: str) -> str:
         bodies += f'<div class="lang-body {active} analysis-content" id="ab-{l}">{body}</div>'
 
     pills = "".join(
-        f'<button class="lang-pill {"active" if l == lang else ""}" onclick="switchLang(\'{l}\')">{n}</button>'
+        f'<button class="lang-pill {"active" if l == lang else ""}" data-lang="{l}" onclick="switchLang(\'{l}\')">{n}</button>'
         for l, n in LANG_NAMES.items()
     )
 
